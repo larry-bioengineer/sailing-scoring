@@ -150,7 +150,9 @@ def build_series_result(
     n_discards = num_discards(n_races, discard_thresholds)
 
     # Filter entries for this event (number of boats in series). Normalize to str so DB 1 matches "1".
-    sail_numbers = [e["sail_number"] for e in entries if str(e.get("event_id")) == str(event_id)]
+    entries_for_event = [e for e in entries if str(e.get("event_id")) == str(event_id)]
+    sail_numbers = [e["sail_number"] for e in entries_for_event]
+    name_by_sail = {e["sail_number"]: (e.get("name") or "") for e in entries_for_event}
     if not sail_numbers:
         return []
 
@@ -198,6 +200,7 @@ def build_series_result(
         ]
         result_rows.append({
             "sail_number": sn,
+            "name": name_by_sail.get(sn, ""),
             "rank": rank_one_based,
             "rank_display": rank_display,
             "scores": scores_with_discard,
@@ -224,11 +227,11 @@ def write_result_csv(
     path: str | Path,
 ) -> None:
     """
-    Write result rows to CSV. Header: RANK, Sail Number, R1, R2, ..., TOTAL, NET.
+    Write result rows to CSV. Header: RANK, Sail Number, Name, R1, R2, ..., TOTAL, NET.
     Discarded scores are shown in parentheses e.g. (3.0).
     """
     path = Path(path)
-    header = ["RANK", "Sail Number"] + [f"R{r}" for r in race_ids] + ["TOTAL", "NET"]
+    header = ["RANK", "Sail Number", "Name"] + [f"R{r}" for r in race_ids] + ["TOTAL", "NET"]
 
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -236,6 +239,7 @@ def write_result_csv(
         for row in rows:
             rank_display = row["rank_display"]
             sail_number = row["sail_number"]
+            name = row.get("name", "")
             score_cells = []
             for score, is_discarded, rc_display in row["scores"]:
                 if score is None:
@@ -247,19 +251,20 @@ def write_result_csv(
                     score_cells.append(cell)
             total = row["total"]
             net = row["net"]
-            writer.writerow([rank_display, sail_number] + score_cells + [f"{total:.1f}", f"{net:.1f}"])
+            writer.writerow([rank_display, sail_number, name] + score_cells + [f"{total:.1f}", f"{net:.1f}"])
 
 
 def to_csv_string(rows: list[dict[str, Any]], race_ids: list[str]) -> str:
     """Return CSV content as a string (for testing)."""
     import io
     buf = io.StringIO()
-    header = ["RANK", "Sail Number"] + [f"R{r}" for r in race_ids] + ["TOTAL", "NET"]
+    header = ["RANK", "Sail Number", "Name"] + [f"R{r}" for r in race_ids] + ["TOTAL", "NET"]
     writer = csv.writer(buf)
     writer.writerow(header)
     for row in rows:
         rank_display = row["rank_display"]
         sail_number = row["sail_number"]
+        name = row.get("name", "")
         score_cells = []
         for score, is_discarded, rc_display in row["scores"]:
             if score is None:
@@ -271,7 +276,7 @@ def to_csv_string(rows: list[dict[str, Any]], race_ids: list[str]) -> str:
                 score_cells.append(cell)
         total = row["total"]
         net = row["net"]
-        writer.writerow([rank_display, sail_number] + score_cells + [f"{total:.1f}", f"{net:.1f}"])
+        writer.writerow([rank_display, sail_number, name] + score_cells + [f"{total:.1f}", f"{net:.1f}"])
     return buf.getvalue()
 
 
@@ -288,7 +293,7 @@ def generate_result_csv_for_event(
     compute series result, write CSV, return rows.
     """
     events = load_event_info()
-    event_info = next((e for e in events if str(e.get("id")) == str(event_id)), None)
+    event_info = next((e for e in events if str(e.get("_id")) == str(event_id)), None)
     if not event_info:
         raise ValueError(f"Event {event_id} not found in event info")
 

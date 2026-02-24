@@ -1,6 +1,6 @@
-RANK,Sail Number,R1,R2,TOTAL,NET
-1st,1,1.0,2.0,3.0,3.0
-2nd,3,3.0,1.0,4.0,4.0
-3rd,2,2.0,4.0,6.0,6.0
-4th,4,6.0 DNF,3.0,9.0,9.0
-5th,5,6.0 DNC,6.0 DNC,12.0,12.0
+RANK,Sail Number,Name,R1,R2,TOTAL,NET
+1st,1,Larry,1.0,2.0,3.0,3.0
+2nd,3,Jennie,3.0,1.0,4.0,4.0
+3rd,2,Sherry,2.0,4.0,6.0,6.0
+4th,4,Jimmy,6.0 DNF,3.0,9.0,9.0
+5th,5,Jackson Wang,6.0 DNC,6.0 DNC,12.0,12.0

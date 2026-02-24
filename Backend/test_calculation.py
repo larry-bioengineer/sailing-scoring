@@ -13,7 +13,7 @@ def test_create_csv():
     output_path = base / "result_sample.csv"
 
     rows = generate_result_csv_for_event(
-        "1",
+        "699da6e6ccc0d1ede0651206",
         output_csv_path=output_path,
     )
 
