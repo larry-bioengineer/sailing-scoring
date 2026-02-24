@@ -9,3 +9,7 @@ venv/
 .env
 **/.env
 */.env
+
+app.yaml
+**/app.yaml
+*/app.yaml

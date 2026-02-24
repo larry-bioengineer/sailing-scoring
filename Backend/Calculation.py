@@ -1,23 +1,28 @@
 """
 Sailing race series result calculation: positions from finishes, discard rule,
 TOTAL/NET, RRS A8 tie-breaking, and CSV output.
+Data is loaded from MongoDB (Scoring database) via DataAccess.
 """
 from __future__ import annotations
 
 import csv
-import json
 from pathlib import Path
 from typing import Any
+
+from DataAccess import load_entries, load_event_info, load_finishes, load_race_info
 
 
 def positions_from_finishes(
     finishes: list[dict[str, Any]],
     race_order: list[str],
-) -> dict[str, dict[str, float]]:
+) -> tuple[dict[str, dict[str, float]], list[tuple[str, str, str]]]:
     """
     Build per-boat, per-race position (1-based) from finish data.
-    For each race, sort by finish_time and assign 1, 2, 3, ...
-    Boats missing in a race have no entry for that race_id.
+    For each race, sort by finish_time and assign 1, 2, 3, ... to finishes that
+    do NOT have rc_scoring. Finishes with rc_scoring are not counted for position
+    (they get a penalty score elsewhere) and are returned in rc_scoring_finishes.
+    Returns (positions, rc_scoring_finishes) where rc_scoring_finishes is
+    list of (sail_number, race_id, rc_scoring_code).
     """
     # Group finishes by race_id
     by_race: dict[str, list[dict]] = {rid: [] for rid in race_order}
@@ -26,11 +31,24 @@ def positions_from_finishes(
         if rid in by_race:
             by_race[rid].append(f)
 
-    # Assign positions per race (earliest finish = 1)
+    rc_scoring_finishes: list[tuple[str, str, str]] = []
+
+    # Assign positions per race (earliest finish = 1); exclude rc_scoring from ranking
     positions: dict[str, dict[str, float]] = {}
     for rid in race_order:
-        race_finishes = sorted(by_race[rid], key=lambda x: x.get("finish_time", ""))
-        for pos, fin in enumerate(race_finishes, start=1):
+        with_rc = [(f, f.get("rc_scoring")) for f in by_race[rid]]
+        # Finishes with rc_scoring: record for penalty score, do not assign position
+        for f, rc in with_rc:
+            if rc:
+                sn = f.get("sail_number")
+                if sn is not None:
+                    rc_scoring_finishes.append((str(sn), str(rid), str(rc).strip()))
+        # Only assign 1, 2, 3, ... to finishes without rc_scoring
+        normal_finishes = sorted(
+            [f for f, rc in with_rc if not rc],
+            key=lambda x: x.get("finish_time", ""),
+        )
+        for pos, fin in enumerate(normal_finishes, start=1):
             sn = fin.get("sail_number")
             if sn is None:
                 continue
@@ -38,7 +56,7 @@ def positions_from_finishes(
                 positions[sn] = {}
             positions[sn][rid] = float(pos)
 
-    return positions
+    return (positions, rc_scoring_finishes)
 
 
 def num_discards(n_races: int, discard_thresholds: list[int]) -> int:
@@ -121,40 +139,61 @@ def build_series_result(
     """
     Build ranked result rows for the event. Each row has: sail_number, rank, rank_display,
     scores (list of (score, is_discarded) in race order), total, net.
+    The result always includes every entry from the Entry collection for this event.
+    Boats not marked in ScoreSample for a race are scored as DNC (Did Not Compete),
+    using the same penalty as rc_scoring (n_boats + 1).
     """
     race_order = [r["race_id"] for r in races]
-    score_matrix = positions_from_finishes(finishes, race_order)
+    score_matrix, rc_scoring_finishes = positions_from_finishes(finishes, race_order)
     discard_thresholds = event_info.get("discard") or []
     n_races = len(race_order)
     n_discards = num_discards(n_races, discard_thresholds)
 
-    # Filter entries for this event
-    sail_numbers = [e["sail_number"] for e in entries if e.get("event_id") == event_id]
+    # Filter entries for this event (number of boats in series). Normalize to str so DB 1 matches "1".
+    sail_numbers = [e["sail_number"] for e in entries if str(e.get("event_id")) == str(event_id)]
     if not sail_numbers:
         return []
 
-    # Per boat: race_scores in race order (None if no finish), total, net, is_discarded
-    rows_data: list[tuple[str, list[float | None], float, float, list[bool]]] = []
+    n_boats = len(sail_numbers)
+    rc_penalty = n_boats + 1  # Score for rc_scoring: one more than boats in series
+    rc_display_map: dict[tuple[str, str], str] = {
+        (sn, rid): code for sn, rid, code in rc_scoring_finishes
+    }
+
+    # Per boat: race_scores in race order. Missing from ScoreSample = DNC (same penalty as rc_scoring).
+    rows_data: list[tuple[str, list[float | None], list[str | None], float, float, list[bool]]] = []
     for sn in sail_numbers:
         boat_scores = score_matrix.get(sn, {})
-        race_scores = [boat_scores.get(rid) for rid in race_order]
+        race_scores: list[float | None] = []
+        rc_displays: list[str | None] = []
+        for rid in race_order:
+            if (str(sn), str(rid)) in rc_display_map:
+                race_scores.append(float(rc_penalty))
+                rc_displays.append(rc_display_map[(str(sn), str(rid))])
+            elif rid in boat_scores:
+                race_scores.append(boat_scores[rid])
+                rc_displays.append(None)
+            else:
+                # Not in ScoreSample for this race = DNC (Did Not Compete), same principle as rc_scoring
+                race_scores.append(float(rc_penalty))
+                rc_displays.append("DNC")
         total, net, is_discarded = total_and_net(race_scores, n_discards)
-        rows_data.append((sn, race_scores, total, net, is_discarded))
+        rows_data.append((sn, race_scores, rc_displays, total, net, is_discarded))
 
     # Sort by NET (lower better), then A8
-    def sort_key(item: tuple[str, list[float | None], float, float, list[bool]]) -> tuple[float, tuple[tuple[float, ...], tuple[float | None, ...]]]:
-        sn, race_scores, _total, net, is_discarded = item
+    def sort_key(item: tuple[str, list[float | None], list[str | None], float, float, list[bool]]) -> tuple[float, tuple[tuple[float, ...], tuple[float | None, ...]]]:
+        sn, race_scores, _rc_displays, _total, net, is_discarded = item
         a8_1, a8_2 = _a8_compare_key(race_scores, is_discarded)
         return (net, (a8_1, a8_2))
 
     rows_data.sort(key=sort_key)
 
-    # Assign ranks (1st, 2nd, 3rd, ...)
+    # Assign ranks (1st, 2nd, 3rd, ...); scores are (score, is_discarded, rc_display)
     result_rows: list[dict[str, Any]] = []
-    for rank_one_based, (sn, race_scores, total, net, is_discarded) in enumerate(rows_data, start=1):
+    for rank_one_based, (sn, race_scores, rc_displays, total, net, is_discarded) in enumerate(rows_data, start=1):
         rank_display = _rank_display(rank_one_based)
         scores_with_discard = [
-            (s if s is not None else None, is_discarded[i])
+            (s if s is not None else None, is_discarded[i], rc_displays[i] if i < len(rc_displays) else None)
             for i, s in enumerate(race_scores)
         ]
         result_rows.append({
@@ -198,13 +237,14 @@ def write_result_csv(
             rank_display = row["rank_display"]
             sail_number = row["sail_number"]
             score_cells = []
-            for score, is_discarded in row["scores"]:
+            for score, is_discarded, rc_display in row["scores"]:
                 if score is None:
                     score_cells.append("")
-                elif is_discarded:
-                    score_cells.append(f"({score:.1f})")
                 else:
-                    score_cells.append(f"{score:.1f}")
+                    cell = f"{score:.1f}" + (f" {rc_display}" if rc_display else "")
+                    if is_discarded:
+                        cell = f"({cell})" if not rc_display else f"({score:.1f} {rc_display})"
+                    score_cells.append(cell)
             total = row["total"]
             net = row["net"]
             writer.writerow([rank_display, sail_number] + score_cells + [f"{total:.1f}", f"{net:.1f}"])
@@ -221,67 +261,41 @@ def to_csv_string(rows: list[dict[str, Any]], race_ids: list[str]) -> str:
         rank_display = row["rank_display"]
         sail_number = row["sail_number"]
         score_cells = []
-        for score, is_discarded in row["scores"]:
+        for score, is_discarded, rc_display in row["scores"]:
             if score is None:
                 score_cells.append("")
-            elif is_discarded:
-                score_cells.append(f"({score:.1f})")
             else:
-                score_cells.append(f"{score:.1f}")
+                cell = f"{score:.1f}" + (f" {rc_display}" if rc_display else "")
+                if is_discarded:
+                    cell = f"({cell})" if not rc_display else f"({score:.1f} {rc_display})"
+                score_cells.append(cell)
         total = row["total"]
         net = row["net"]
         writer.writerow([rank_display, sail_number] + score_cells + [f"{total:.1f}", f"{net:.1f}"])
     return buf.getvalue()
 
 
-# ---------- Data loading helpers ----------
-
-
-def load_event_info(path: str | Path) -> list[dict[str, Any]]:
-    """Load EventInfo.json (list of events)."""
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
-
-
-def load_entries(path: str | Path) -> list[dict[str, Any]]:
-    """Load Entry.json."""
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
-
-
-def load_race_info(path: str | Path) -> list[dict[str, Any]]:
-    """Load RaceInfo.json (list of races; order preserved)."""
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
-
-
-def load_finishes(path: str | Path) -> list[dict[str, Any]]:
-    """Load finish data (e.g. ScoreSample.json)."""
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+# ---------- Result CSV generation (uses DataAccess for MongoDB) ----------
 
 
 def generate_result_csv_for_event(
     event_id: str,
     *,
-    event_info_path: str | Path,
-    entries_path: str | Path,
-    race_info_path: str | Path,
-    finishes_path: str | Path,
     output_csv_path: str | Path,
 ) -> list[dict[str, Any]]:
     """
-    Load all data from JSON files, compute series result, write CSV, return rows.
+    Load event, entries, races, and finishes from MongoDB (Scoring database),
+    compute series result, write CSV, return rows.
     """
-    events = load_event_info(event_info_path)
-    event_info = next((e for e in events if e.get("id") == event_id), None)
+    events = load_event_info()
+    event_info = next((e for e in events if str(e.get("id")) == str(event_id)), None)
     if not event_info:
         raise ValueError(f"Event {event_id} not found in event info")
 
-    entries = load_entries(entries_path)
-    races_list = load_race_info(race_info_path)
-    races = [r for r in races_list if r.get("event_id") == event_id]
-    finishes = load_finishes(finishes_path)
+    entries = load_entries()
+    races_list = load_race_info()
+    races = [r for r in races_list if str(r.get("event_id")) == str(event_id)]
+    finishes = load_finishes()
 
     rows = build_series_result(event_id, entries, races, finishes, event_info)
     race_ids = [r["race_id"] for r in races]

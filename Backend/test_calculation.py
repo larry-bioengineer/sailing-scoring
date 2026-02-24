@@ -14,10 +14,6 @@ def test_create_csv():
 
     rows = generate_result_csv_for_event(
         "1",
-        event_info_path=base / "EventInfo.json",
-        entries_path=base / "Entry.json",
-        race_info_path=base / "RaceInfo.json",
-        finishes_path=base / "ScoreSample.json",
         output_csv_path=output_path,
     )
 
