@@ -22,16 +22,36 @@ def event_doc(discard: list[int]) -> dict[str, Any]:
     return {"discard": list(discard)}
 
 
-def entry_doc(event_id: str, sail_number: str, name: str = "") -> dict[str, Any]:
-    """Build an Entry document: {"event_id", "sail_number", "name"}."""
+def entry_doc(
+    event_id: str,
+    sail_number: str,
+    name: str = "",
+    division_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Build an Entry document: {"event_id", "sail_number", "name", "division_ids"?}."""
     if not event_id or not event_id.strip():
         raise ValueError("event_id must be non-empty")
     if not sail_number or not str(sail_number).strip():
         raise ValueError("sail_number must be non-empty")
-    return {
+    doc: dict[str, Any] = {
         "event_id": event_id.strip(),
         "sail_number": str(sail_number).strip(),
         "name": (name or "").strip(),
+    }
+    if division_ids is not None:
+        doc["division_ids"] = [str(d).strip() for d in division_ids if str(d).strip()]
+    return doc
+
+
+def division_doc(event_id: str, name: str) -> dict[str, Any]:
+    """Build a Division document: {"event_id", "name"}."""
+    if not event_id or not event_id.strip():
+        raise ValueError("event_id must be non-empty")
+    if not name or not str(name).strip():
+        raise ValueError("name must be non-empty")
+    return {
+        "event_id": event_id.strip(),
+        "name": str(name).strip(),
     }
 
 
@@ -107,10 +127,82 @@ def insert_entry(doc: dict[str, Any]) -> Any:
     return get_db().Entry.insert_one(doc)
 
 
+def update_entry(entry_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
+    """Update an entry by _id. data may contain "name", "division_ids". Returns updated document or None if not found."""
+    coll = get_db().Entry
+    try:
+        q = {"_id": ObjectId(entry_id)}
+    except Exception:
+        q = {"_id": entry_id}
+    updates: dict[str, Any] = {}
+    if "name" in data:
+        updates["name"] = (data.get("name") or "").strip()
+    if "division_ids" in data:
+        ids = data["division_ids"]
+        if isinstance(ids, list):
+            updates["division_ids"] = [str(d).strip() for d in ids if str(d).strip()]
+        else:
+            updates["division_ids"] = []
+    if not updates:
+        result = coll.find_one(q)
+        return result
+    result = coll.find_one_and_update(q, {"$set": updates}, return_document=ReturnDocument.AFTER)
+    if result is None and "_id" in q and not isinstance(q["_id"], ObjectId):
+        result = coll.find_one_and_update(
+            {"_id": ObjectId(entry_id)}, {"$set": updates}, return_document=ReturnDocument.AFTER
+        )
+    return result
+
+
 def delete_entry(entry_id: str) -> bool:
     """Delete one entry from Scoring.Entry by _id. Returns True if a document was deleted."""
     try:
         result = get_db().Entry.delete_one({"_id": ObjectId(entry_id)})
+        return result.deleted_count > 0
+    except Exception:
+        return False
+
+
+def insert_division(doc: dict[str, Any]) -> Any:
+    """Insert one division into Scoring.Division. Returns inserted _id."""
+    return get_db().Division.insert_one(doc)
+
+
+def update_division(division_id: str, name: str) -> dict[str, Any] | None:
+    """Update a division's name in Scoring.Division. Returns updated document or None if not found."""
+    if not name or not str(name).strip():
+        raise ValueError("name must be non-empty")
+    coll = get_db().Division
+    try:
+        q = {"_id": ObjectId(division_id)}
+    except Exception:
+        q = {"_id": division_id}
+    update = {"$set": {"name": str(name).strip()}}
+    result = coll.find_one_and_update(q, update, return_document=ReturnDocument.AFTER)
+    if result is None:
+        try:
+            q = {"_id": division_id}
+            result = coll.find_one_and_update(q, update, return_document=ReturnDocument.AFTER)
+        except Exception:
+            pass
+    return result
+
+
+def delete_division(division_id: str) -> bool:
+    """Delete one division from Scoring.Division. Removes this division_id from all entries' division_ids. Returns True if a document was deleted."""
+    db = get_db()
+    try:
+        oid = ObjectId(division_id)
+        div_id_str = str(oid)
+    except Exception:
+        div_id_str = str(division_id)
+    # Remove this division from any entry's division_ids
+    db.Entry.update_many(
+        {"division_ids": div_id_str},
+        {"$pull": {"division_ids": div_id_str}},
+    )
+    try:
+        result = db.Division.delete_one({"_id": ObjectId(division_id)})
         return result.deleted_count > 0
     except Exception:
         return False

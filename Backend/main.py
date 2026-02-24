@@ -7,16 +7,22 @@ from DataAccess import (
     load_entries,
     load_race_info,
     load_finishes,
+    load_divisions,
 )
 from ScoringEntry import (
     event_doc,
     entry_doc,
+    division_doc,
     race_doc,
     finish_doc,
     insert_event,
     update_event,
     insert_entry,
     delete_entry,
+    update_entry,
+    insert_division,
+    update_division,
+    delete_division,
     insert_race,
     insert_finish,
 )
@@ -121,8 +127,11 @@ def post_entry():
     event_id = (data.get("event_id") or "").strip()
     sail_number = (data.get("sail_number") or "").strip()
     name = (data.get("name") or "").strip()
+    division_ids = data.get("division_ids")
+    if division_ids is not None and not isinstance(division_ids, list):
+        division_ids = None
     try:
-        doc = entry_doc(event_id, sail_number, name=name)
+        doc = entry_doc(event_id, sail_number, name=name, division_ids=division_ids)
         result = insert_entry(doc)
         out = {**doc, "_id": str(result.inserted_id)}
         return jsonify(serialize_for_json(out)), 201
@@ -137,6 +146,74 @@ def delete_entry_route(entry_id):
     deleted = delete_entry(entry_id.strip())
     if not deleted:
         return jsonify({"error": "Entry not found"}), 404
+    return "", 204
+
+
+@app.route("/api/entries/<entry_id>", methods=["PATCH"])
+def patch_entry(entry_id):
+    if not entry_id or not entry_id.strip():
+        return jsonify({"error": "entry_id is required"}), 400
+    entry_id = entry_id.strip()
+    data = request.get_json() or {}
+    updated = update_entry(entry_id, data)
+    if updated is None:
+        return jsonify({"error": "Entry not found"}), 404
+    return jsonify(serialize_for_json(updated))
+
+
+# ---------- Divisions ----------
+
+
+@app.route("/api/divisions", methods=["GET"])
+def get_divisions():
+    event_id = request.args.get("event_id")
+    divisions = load_divisions()
+    if event_id is not None and event_id != "":
+        divisions = [d for d in divisions if str(d.get("event_id", "")) == str(event_id)]
+    out = serialize_for_json(divisions)
+    return jsonify(out)
+
+
+@app.route("/api/divisions", methods=["POST"])
+def post_division():
+    data = request.get_json() or {}
+    event_id = (data.get("event_id") or "").strip()
+    name = (data.get("name") or "").strip()
+    try:
+        doc = division_doc(event_id, name)
+        result = insert_division(doc)
+        out = {**doc, "_id": str(result.inserted_id)}
+        return jsonify(serialize_for_json(out)), 201
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/divisions/<division_id>", methods=["PUT", "PATCH"])
+def put_division(division_id):
+    if not division_id or not division_id.strip():
+        return jsonify({"error": "division_id is required"}), 400
+    division_id = division_id.strip()
+    data = request.get_json() or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+    try:
+        updated = update_division(division_id, name)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if updated is None:
+        return jsonify({"error": "Division not found"}), 404
+    out = {"_id": _str_id(updated), "event_id": updated.get("event_id"), "name": updated.get("name")}
+    return jsonify(serialize_for_json(out))
+
+
+@app.route("/api/divisions/<division_id>", methods=["DELETE"])
+def delete_division_route(division_id):
+    if not division_id or not division_id.strip():
+        return jsonify({"error": "division_id is required"}), 400
+    deleted = delete_division(division_id.strip())
+    if not deleted:
+        return jsonify({"error": "Division not found"}), 404
     return "", 204
 
 
@@ -205,12 +282,17 @@ def post_finish():
 # ---------- Results ----------
 
 
-def _event_result(event_id: str):
+def _event_result(event_id: str, division_id: str | None = None):
     events = load_event_info()
     event_info = next((e for e in events if str(e.get("_id", "")) == str(event_id)), None)
     if not event_info:
         return None, None, None
     entries = load_entries()
+    entries = [e for e in entries if str(e.get("event_id", "")) == str(event_id)]
+    if division_id is not None and division_id.strip() != "":
+        div_id = str(division_id).strip()
+        entry_division_ids = lambda e: e.get("division_ids") or []
+        entries = [e for e in entries if div_id in entry_division_ids(e)]
     races_list = load_race_info()
     races = [r for r in races_list if str(r.get("event_id", "")) == str(event_id)]
     finishes = load_finishes()
@@ -221,15 +303,17 @@ def _event_result(event_id: str):
 
 @app.route("/api/results/<event_id>", methods=["GET"])
 def get_result_json(event_id):
-    rows, race_ids, _ = _event_result(event_id)
+    division_id = request.args.get("division_id")
+    rows, race_ids, _ = _event_result(event_id, division_id=division_id)
     if rows is None:
         return jsonify({"error": "Event not found"}), 404
     return jsonify(serialize_for_json(rows))
 
 
 @app.route("/api/results/<event_id>/csv", methods=["GET"])
-def get_result_csv(event_id):
-    rows, race_ids, _ = _event_result(event_id)
+def get_result_csv_route(event_id):
+    division_id = request.args.get("division_id")
+    rows, race_ids, _ = _event_result(event_id, division_id=division_id)
     if rows is None:
         return jsonify({"error": "Event not found"}), 404
     csv_str = to_csv_string(rows, race_ids)

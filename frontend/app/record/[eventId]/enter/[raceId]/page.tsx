@@ -2,18 +2,15 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import {
-  getEvents,
   getRaces,
   getFinishes,
   createFinish,
-  type Event,
-  type Race,
   type Finish,
 } from "@/lib/api";
 
-type NewRow = { sail_number: string; finish_time: string; race_id: string; rc_scoring: string };
+type NewRow = { sail_number: string; finish_time: string; rc_scoring: string };
 
 /** Parse "H:MM:SS" or "HH:MM:SS" to seconds since midnight. Returns null if invalid. */
 function parseFinishTimeToSeconds(timeStr: string): number | null {
@@ -35,12 +32,11 @@ function secondsToFinishTime(totalSeconds: number): string {
   return [h, m, sec].map((n) => String(n).padStart(2, "0")).join(":");
 }
 
-/** Get the latest finish time for a race (by time value) and add one second. Falls back to "00:00:01" if no finishes. */
-function deriveFinishTimeFromLast(raceId: string, finishes: Finish[]): string {
-  const forRace = finishes.filter((f) => f.race_id === raceId);
-  if (forRace.length === 0) return "00:00:01";
+/** Get the latest finish time for a race and add one second. Falls back to "00:00:01" if no finishes. */
+function deriveFinishTimeFromLast(finishes: Finish[]): string {
+  if (finishes.length === 0) return "00:00:01";
   let maxSeconds = -1;
-  for (const f of forRace) {
+  for (const f of finishes) {
     const sec = parseFinishTimeToSeconds(f.finish_time);
     if (sec !== null && sec > maxSeconds) maxSeconds = sec;
   }
@@ -48,66 +44,49 @@ function deriveFinishTimeFromLast(raceId: string, finishes: Finish[]): string {
   return secondsToFinishTime(maxSeconds + 1);
 }
 
-export default function RecordEnterPage() {
-  const searchParams = useSearchParams();
-  const eventIdFromUrl = searchParams.get("eventId") ?? "";
-  const [events, setEvents] = useState<Event[]>([]);
-  const [races, setRaces] = useState<Race[]>([]);
+export default function RecordEnterRacePage() {
+  const params = useParams();
+  const eventId = typeof params.eventId === "string" ? params.eventId : "";
+  const raceId = typeof params.raceId === "string" ? params.raceId : "";
+  const [raceValid, setRaceValid] = useState<boolean | null>(null);
   const [finishes, setFinishes] = useState<Finish[]>([]);
-  const [eventId, setEventId] = useState("");
-  const [raceId, setRaceId] = useState("");
-  const [finishesLoading, setFinishesLoading] = useState(false);
+  const [finishesLoading, setFinishesLoading] = useState(true);
   const [newRows, setNewRows] = useState<NewRow[]>([
-    { sail_number: "", finish_time: "", race_id: "", rc_scoring: "" },
+    { sail_number: "", finish_time: "", rc_scoring: "" },
   ]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getEvents().then(setEvents).catch(() => {});
-  }, []);
-
-  /** Pre-fill event from URL when navigating from record/[eventId]. */
-  useEffect(() => {
-    if (eventIdFromUrl && events.some((ev) => ev.id === eventIdFromUrl)) {
-      setEventId(eventIdFromUrl);
-    }
-  }, [eventIdFromUrl, events]);
-
-  useEffect(() => {
-    if (!eventId) {
-      setRaces([]);
-      setRaceId("");
+    if (!eventId || !raceId) {
+      setRaceValid(false);
       return;
     }
-    getRaces(eventId).then((data) => {
-      setRaces(data);
-      setRaceId((prev) => {
-        const stillValid = data.some((r) => r.race_id === prev);
-        return stillValid ? prev : (data[0]?.race_id ?? "");
-      });
-    });
-  }, [eventId]);
+    getRaces(eventId)
+      .then((races) => {
+        const valid = races.some((r) => r.race_id === raceId);
+        setRaceValid(valid);
+      })
+      .catch(() => setRaceValid(false));
+  }, [eventId, raceId]);
 
   useEffect(() => {
-    if (!raceId && !eventId) {
+    if (!raceId || raceValid !== true) {
       setFinishes([]);
+      setFinishesLoading(raceValid === null);
       return;
     }
     setFinishesLoading(true);
-    const promise = eventId
-      ? getFinishes(undefined, eventId)
-      : getFinishes(raceId, undefined);
-    promise
+    getFinishes(raceId, undefined)
       .then(setFinishes)
       .catch(() => setFinishes([]))
       .finally(() => setFinishesLoading(false));
-  }, [raceId, eventId]);
+  }, [raceId, raceValid]);
 
   const addRow = () => {
     setNewRows((prev) => [
       ...prev,
-      { sail_number: "", finish_time: "", race_id: raceId || "", rc_scoring: "" },
+      { sail_number: "", finish_time: "", rc_scoring: "" },
     ]);
   };
 
@@ -128,40 +107,54 @@ export default function RecordEnterPage() {
   };
 
   const saveNewRows = async () => {
-    const toSave = newRows.filter(
-      (r) => r.sail_number.trim() && r.race_id.trim()
-    );
-    if (toSave.length === 0) return;
+    const toSave = newRows.filter((r) => r.sail_number.trim());
+    if (toSave.length === 0 || !raceId) return;
     setError(null);
     setSaving(true);
     try {
+      const defaultTime = deriveFinishTimeFromLast(finishes);
       for (const row of toSave) {
-        const finishTime = row.finish_time.trim()
-          ? row.finish_time.trim()
-          : deriveFinishTimeFromLast(row.race_id.trim(), finishes);
+        const finishTime = row.finish_time.trim() || defaultTime;
         await createFinish({
           sail_number: row.sail_number.trim(),
-          race_id: row.race_id.trim(),
+          race_id: raceId,
           finish_time: finishTime,
           rc_scoring: row.rc_scoring.trim() || undefined,
         });
       }
-      setNewRows([
-        { sail_number: "", finish_time: "", race_id: raceId || "", rc_scoring: "" },
-      ]);
-      if (eventId) {
-        const data = await getFinishes(undefined, eventId);
-        setFinishes(data);
-      } else if (raceId) {
-        const data = await getFinishes(raceId, undefined);
-        setFinishes(data);
-      }
+      setNewRows([{ sail_number: "", finish_time: "", rc_scoring: "" }]);
+      const data = await getFinishes(raceId, undefined);
+      setFinishes(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");
     } finally {
       setSaving(false);
     }
   };
+
+  if (!eventId || !raceId) {
+    return (
+      <div className="py-8 px-6 sm:px-8 lg:px-10">
+        <p className="text-zinc-500 dark:text-zinc-400">Invalid event or race.</p>
+        <Link href="/record" className="mt-4 inline-block text-sm underline">
+          Back to Record
+        </Link>
+      </div>
+    );
+  }
+
+  if (raceValid === false) {
+    return (
+      <div className="py-8 px-6 sm:px-8 lg:px-10">
+        <p className="text-zinc-500 dark:text-zinc-400">
+          Race not found for this event.
+        </p>
+        <Link href={`/record/${eventId}`} className="mt-4 inline-block text-sm underline">
+          Back to Event {eventId}
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="py-8 px-6 sm:px-8 lg:px-10">
@@ -171,48 +164,21 @@ export default function RecordEnterPage() {
             Record
           </Link>
           <span className="mx-2">/</span>
-          <span className="text-zinc-700 dark:text-zinc-300">Enter finish data</span>
+          <Link href={`/record/${eventId}`} className="hover:underline">
+            Event {eventId}
+          </Link>
+          <span className="mx-2">/</span>
+          <span className="text-zinc-700 dark:text-zinc-300">
+            Enter finishes — Race {raceId}
+          </span>
         </nav>
         <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
-          Enter finish data
+          Enter finish data — Race {raceId}
         </h1>
         <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          Sail number, finish time, race ID, and optional rc_scoring (e.g. OCS, DNF).
+          Sail number, finish time (optional; blank = last + 1s), and optional rc_scoring (e.g. OCS, DNF).
         </p>
       </header>
-
-      <div className="mb-6 flex flex-wrap items-center gap-4">
-        <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-          <span>Event:</span>
-          <select
-            value={eventId}
-            onChange={(e) => setEventId(e.target.value)}
-            className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50"
-          >
-            <option value="">All</option>
-            {events.map((ev) => (
-              <option key={ev.id} value={ev.id}>
-                {ev.id}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-          <span>Race:</span>
-          <select
-            value={raceId}
-            onChange={(e) => setRaceId(e.target.value)}
-            className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50"
-          >
-            <option value="">—</option>
-            {races.map((r) => (
-              <option key={r._id} value={r.race_id}>
-                {r.race_id} ({r.start_time})
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
 
       {error && (
         <p className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">
@@ -241,12 +207,6 @@ export default function RecordEnterPage() {
                   scope="col"
                   className="px-6 py-4 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50"
                 >
-                  Race ID
-                </th>
-                <th
-                  scope="col"
-                  className="px-6 py-4 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50"
-                >
                   rc_scoring
                 </th>
                 <th scope="col" className="px-6 py-4 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50">
@@ -257,7 +217,7 @@ export default function RecordEnterPage() {
             <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
               {finishesLoading ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-zinc-500 dark:text-zinc-400">
+                  <td colSpan={4} className="px-6 py-8 text-center text-zinc-500 dark:text-zinc-400">
                     Loading…
                   </td>
                 </tr>
@@ -273,9 +233,6 @@ export default function RecordEnterPage() {
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-600 dark:text-zinc-400">
                         {f.finish_time}
-                      </td>
-                      <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-600 dark:text-zinc-400">
-                        {f.race_id}
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-600 dark:text-zinc-400">
                         {f.rc_scoring ?? "—"}
@@ -313,17 +270,6 @@ export default function RecordEnterPage() {
                       <td className="px-6 py-2">
                         <input
                           type="text"
-                          value={row.race_id}
-                          onChange={(e) =>
-                            updateNewRow(index, "race_id", e.target.value)
-                          }
-                          placeholder="e.g. 1"
-                          className="w-full min-w-[4rem] rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50"
-                        />
-                      </td>
-                      <td className="px-6 py-2">
-                        <input
-                          type="text"
                           value={row.rc_scoring}
                           onChange={(e) =>
                             updateNewRow(index, "rc_scoring", e.target.value)
@@ -349,27 +295,31 @@ export default function RecordEnterPage() {
           </table>
         </div>
         <div className="flex flex-wrap items-center gap-3 border-t border-zinc-200 px-6 py-4 dark:border-zinc-800">
-            <button
-              type="button"
-              onClick={addRow}
-              className="text-sm font-medium text-zinc-700 underline dark:text-zinc-300"
-            >
-              + Add row
-            </button>
-            <button
-              type="button"
-              onClick={saveNewRows}
-              disabled={
-                saving ||
-                !newRows.some(
-                  (r) => r.sail_number.trim() && r.race_id.trim()
-                )
-              }
-              className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-            >
-              {saving ? "Saving…" : "Save new finishes"}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={addRow}
+            className="text-sm font-medium text-zinc-700 underline dark:text-zinc-300"
+          >
+            + Add row
+          </button>
+          <button
+            type="button"
+            onClick={saveNewRows}
+            disabled={
+              saving ||
+              !newRows.some((r) => r.sail_number.trim())
+            }
+            className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          >
+            {saving ? "Saving…" : "Save new finishes"}
+          </button>
+          <Link
+            href={`/record/${eventId}`}
+            className="text-sm font-medium text-zinc-600 hover:underline dark:text-zinc-400"
+          >
+            Back to event
+          </Link>
+        </div>
       </div>
     </div>
   );

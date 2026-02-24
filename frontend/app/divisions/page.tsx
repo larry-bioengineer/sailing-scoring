@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getEvents, discardSummary, type Event } from "@/lib/api";
 
-export default function RecordPage() {
+export default function DivisionsPage() {
   const router = useRouter();
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
@@ -21,10 +21,10 @@ export default function RecordPage() {
     <div className="py-8 px-6 sm:px-8 lg:px-10">
       <header className="mb-8">
         <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
-          Record
+          Divisions
         </h1>
         <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          Select an event to view and manage its race records and finishes.
+          Select an event to view and manage its divisions.
         </p>
       </header>
 
@@ -70,13 +70,13 @@ export default function RecordPage() {
                   events.map((ev) => (
                     <tr
                       key={ev.id}
-                      onClick={() => router.push(`/record/${ev.id}`)}
+                      onClick={() => router.push(`/divisions/${ev.id}`)}
                       role="button"
                       tabIndex={0}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
-                          router.push(`/record/${ev.id}`);
+                          router.push(`/divisions/${ev.id}`);
                         }
                       }}
                       className="cursor-pointer bg-white dark:bg-zinc-950 hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors"
@@ -89,7 +89,7 @@ export default function RecordPage() {
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-sm text-right">
                         <span className="text-zinc-500 dark:text-zinc-400">
-                          View records →
+                          View divisions →
                         </span>
                       </td>
                     </tr>

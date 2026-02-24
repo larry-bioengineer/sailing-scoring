@@ -3,28 +3,42 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { getEntries, createEntry, deleteEntry, type Entry } from "@/lib/api";
+import {
+  getEntries,
+  createEntry,
+  updateEntry,
+  deleteEntry,
+  getDivisions,
+  type Entry,
+  type Division,
+} from "@/lib/api";
 
 export default function EntriesEventPage() {
   const params = useParams();
   const eventId = typeof params.eventId === "string" ? params.eventId : "";
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [divisions, setDivisions] = useState<Division[]>([]);
   const [loading, setLoading] = useState(true);
-  const [newRows, setNewRows] = useState<{ sail_number: string; name: string }[]>([
-    { sail_number: "", name: "" },
-  ]);
+  const [newRows, setNewRows] = useState<
+    { sail_number: string; name: string; division_ids: string[] }[]
+  >([{ sail_number: "", name: "", division_ids: [] }]);
   const [saving, setSaving] = useState(false);
-  const [savedFeedback, setSavedFeedback] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [removedFeedback, setRemovedFeedback] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lastNewRowSailRef = useRef<HTMLInputElement>(null);
+  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = async () => {
     if (!eventId) return;
     setLoading(true);
     try {
-      const data = await getEntries(eventId);
-      setEntries(data);
+      const [entriesData, divisionsData] = await Promise.all([
+        getEntries(eventId),
+        getDivisions(eventId),
+      ]);
+      setEntries(entriesData);
+      setDivisions(divisionsData);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load entries");
     } finally {
@@ -36,11 +50,28 @@ export default function EntriesEventPage() {
     load();
   }, [eventId]);
 
+  /** Auto-dismiss success notification after 4 seconds. */
+  useEffect(() => {
+    if (successMessage == null) return;
+    if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+    successTimeoutRef.current = setTimeout(() => {
+      setSuccessMessage(null);
+      successTimeoutRef.current = null;
+    }, 4000);
+    return () => {
+      if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+    };
+  }, [successMessage]);
+
   const addRow = () => {
-    setNewRows((prev) => [...prev, { sail_number: "", name: "" }]);
+    setNewRows((prev) => [...prev, { sail_number: "", name: "", division_ids: [] }]);
   };
 
-  const updateNewRow = (index: number, field: "sail_number" | "name", value: string) => {
+  const updateNewRow = (
+    index: number,
+    field: "sail_number" | "name",
+    value: string
+  ) => {
     setNewRows((prev) => {
       const next = [...prev];
       next[index] = { ...next[index], [field]: value };
@@ -48,13 +79,34 @@ export default function EntriesEventPage() {
     });
   };
 
+  const setNewRowDivision = (rowIndex: number, divisionId: string) => {
+    setNewRows((prev) => {
+      const next = [...prev];
+      next[rowIndex] = {
+        ...next[rowIndex],
+        division_ids: divisionId ? [divisionId] : [],
+      };
+      return next;
+    });
+  };
+
+  const setEntryDivision = async (entry: Entry, divisionId: string) => {
+    const nextIds = divisionId ? [divisionId] : [];
+    setError(null);
+    try {
+      await updateEntry(entry._id, { division_ids: nextIds });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to update divisions");
+    }
+  };
+
   const removeNewRow = (index: number) => {
     setNewRows((prev) => prev.filter((_, i) => i !== index));
   };
 
   const showSavedFeedback = () => {
-    setSavedFeedback(true);
-    setTimeout(() => setSavedFeedback(false), 2000);
+    setSuccessMessage("Saved");
   };
 
   const showRemovedFeedback = () => {
@@ -84,11 +136,12 @@ export default function EntriesEventPage() {
           event_id: eventId,
           sail_number: row.sail_number.trim(),
           name: row.name.trim(),
+          division_ids: row.division_ids?.length ? row.division_ids : undefined,
         });
       }
-      setNewRows([{ sail_number: "", name: "" }]);
-      await load();
+      setNewRows([{ sail_number: "", name: "", division_ids: [] }]);
       showSavedFeedback();
+      await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");
     } finally {
@@ -110,14 +163,15 @@ export default function EntriesEventPage() {
         event_id: eventId,
         sail_number: row.sail_number.trim(),
         name: row.name.trim(),
+        division_ids: row.division_ids?.length ? row.division_ids : undefined,
       });
       setNewRows((prev) => [
         ...prev.slice(0, index),
         ...prev.slice(index + 1),
-        { sail_number: "", name: "" },
+        { sail_number: "", name: "", division_ids: [] },
       ]);
-      await load();
       showSavedFeedback();
+      await load();
       setTimeout(() => lastNewRowSailRef.current?.focus(), 0);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");
@@ -177,6 +231,44 @@ export default function EntriesEventPage() {
         </p>
       )}
 
+      {/* Success notification (Tailwind-style toast) */}
+      {successMessage && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed right-4 top-4 z-[100] flex w-full max-w-sm items-start gap-3 rounded-lg border border-emerald-200 bg-white p-4 shadow-lg ring-1 ring-emerald-500/10 dark:border-emerald-800 dark:bg-zinc-900 dark:ring-emerald-400/20"
+        >
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/40">
+            <svg
+              className="h-5 w-5 text-emerald-600 dark:text-emerald-400"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              aria-hidden
+            >
+              <path
+                fillRule="evenodd"
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </div>
+          <p className="flex-1 pt-0.5 text-sm font-medium text-zinc-900 dark:text-zinc-50">
+            {successMessage}
+          </p>
+          <button
+            type="button"
+            onClick={() => setSuccessMessage(null)}
+            className="shrink-0 rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+            aria-label="Dismiss notification"
+          >
+            <span className="sr-only">Dismiss</span>
+            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+              <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-2.72 2.72a.75.75 0 101.06 1.06L10 11.06l2.72 2.72a.75.75 0 101.06-1.06L11.06 10l2.72-2.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 6.22z" />
+            </svg>
+          </button>
+        </div>
+      )}
+
       <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
         <div className="overflow-x-auto">
           <table className="min-w-full table-auto divide-y divide-zinc-200 dark:divide-zinc-800">
@@ -194,6 +286,14 @@ export default function EntriesEventPage() {
                 >
                   Name
                 </th>
+                {divisions.length > 0 && (
+                  <th
+                    scope="col"
+                    className="px-6 py-4 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50"
+                  >
+                    Divisions
+                  </th>
+                )}
                 <th scope="col" className="px-6 py-4 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50">
                   Actions
                 </th>
@@ -202,7 +302,10 @@ export default function EntriesEventPage() {
             <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
               {loading ? (
                 <tr>
-                  <td colSpan={3} className="px-6 py-8 text-center text-zinc-500 dark:text-zinc-400">
+                  <td
+                    colSpan={divisions.length > 0 ? 4 : 3}
+                    className="px-6 py-8 text-center text-zinc-500 dark:text-zinc-400"
+                  >
                     Loading…
                   </td>
                 </tr>
@@ -219,6 +322,24 @@ export default function EntriesEventPage() {
                       <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-600 dark:text-zinc-400">
                         {entry.name ?? "—"}
                       </td>
+                      {divisions.length > 0 && (
+                        <td className="px-6 py-4 text-sm">
+                          <select
+                            value={(entry.division_ids ?? [])[0] ?? ""}
+                            onChange={(e) =>
+                              setEntryDivision(entry, e.target.value)
+                            }
+                            className="min-w-[8rem] rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50"
+                          >
+                            <option value="">—</option>
+                            {divisions.map((div) => (
+                              <option key={div._id} value={div._id}>
+                                {div.name}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                      )}
                       <td className="whitespace-nowrap px-6 py-4 text-sm">
                         <button
                           type="button"
@@ -237,13 +358,19 @@ export default function EntriesEventPage() {
                     >
                       <td className="px-6 py-2">
                         <input
-                          ref={index === newRows.length - 1 ? lastNewRowSailRef : undefined}
+                          ref={
+                            index === newRows.length - 1
+                              ? lastNewRowSailRef
+                              : undefined
+                          }
                           type="text"
                           value={row.sail_number}
                           onChange={(e) =>
                             updateNewRow(index, "sail_number", e.target.value)
                           }
-                          onKeyDown={(e) => handleNewRowKeyDown(index, "sail_number", e)}
+                          onKeyDown={(e) =>
+                            handleNewRowKeyDown(index, "sail_number", e)
+                          }
                           placeholder="e.g. 1"
                           className="w-full min-w-[6rem] rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50"
                         />
@@ -252,12 +379,34 @@ export default function EntriesEventPage() {
                         <input
                           type="text"
                           value={row.name}
-                          onChange={(e) => updateNewRow(index, "name", e.target.value)}
-                          onKeyDown={(e) => handleNewRowKeyDown(index, "name", e)}
+                          onChange={(e) =>
+                            updateNewRow(index, "name", e.target.value)
+                          }
+                          onKeyDown={(e) =>
+                            handleNewRowKeyDown(index, "name", e)
+                          }
                           placeholder="e.g. Larry"
                           className="w-full min-w-[8rem] rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50"
                         />
                       </td>
+                      {divisions.length > 0 && (
+                        <td className="px-6 py-2">
+                          <select
+                            value={(row.division_ids ?? [])[0] ?? ""}
+                            onChange={(e) =>
+                              setNewRowDivision(index, e.target.value)
+                            }
+                            className="min-w-[8rem] rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50"
+                          >
+                            <option value="">—</option>
+                            {divisions.map((div) => (
+                              <option key={div._id} value={div._id}>
+                                {div.name}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                      )}
                       <td className="px-6 py-2">
                         <button
                           type="button"
@@ -287,31 +436,15 @@ export default function EntriesEventPage() {
             onClick={saveNewRows}
             disabled={saving || newRows.every((r) => !r.sail_number.trim())}
             className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
-              savedFeedback
+              successMessage
                 ? "bg-emerald-600 text-white dark:bg-emerald-600"
                 : "bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
             }`}
           >
             {saving ? (
               "Saving…"
-            ) : savedFeedback ? (
-              <>
-                <svg
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  aria-hidden
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M5 13l4 4L19 7"
-                  />
-                </svg>
-                Saved
-              </>
+            ) : successMessage ? (
+              "Saved"
             ) : (
               "Save new entries"
             )}
