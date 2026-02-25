@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 /**
@@ -8,7 +8,7 @@ import { useRouter, useSearchParams } from "next/navigation";
  * - No eventId → /record
  * - eventId present → /record/[eventId] (user picks a race, then enters)
  */
-export default function RecordEnterRedirectPage() {
+function RedirectContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const eventId = searchParams.get("eventId") ?? "";
@@ -27,5 +27,21 @@ export default function RecordEnterRedirectPage() {
         Redirecting… Select an event and race to enter finish data.
       </p>
     </div>
+  );
+}
+
+export default function RecordEnterRedirectPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="py-8 px-0 sm:px-8 lg:px-10">
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            Redirecting…
+          </p>
+        </div>
+      }
+    >
+      <RedirectContent />
+    </Suspense>
   );
 }
