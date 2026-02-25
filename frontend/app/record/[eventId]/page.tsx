@@ -10,6 +10,7 @@ import {
   type Race,
   type Finish,
 } from "@/lib/api";
+import { CreateRaceModal } from "./CreateRaceModal";
 
 export default function RecordEventPage() {
   const params = useParams();
@@ -115,65 +116,26 @@ export default function RecordEventPage() {
             setCreateRaceOpen((prev) => !prev);
             setCreateError(null);
           }}
-          className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          className="cursor-pointer rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
         >
           Create race
         </button>
       </header>
 
-      {createRaceOpen && (
-        <div className="mb-6 rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
-          <h2 className="mb-4 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-            Create race
-          </h2>
-          {createError && (
-            <p className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">
-              {createError}
-            </p>
-          )}
-          <form onSubmit={handleCreateRace} className="flex flex-wrap items-end gap-4">
-            <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
-              Race ID
-              <input
-                type="text"
-                value={newRaceId}
-                onChange={(e) => setNewRaceId(e.target.value)}
-                placeholder="e.g. 1"
-                className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
-              Start time
-              <input
-                type="text"
-                value={newStartTime}
-                onChange={(e) => setNewStartTime(e.target.value)}
-                placeholder="e.g. 10:00:00"
-                className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50"
-              />
-            </label>
-            <div className="flex gap-2">
-              <button
-                type="submit"
-                disabled={createSubmitting}
-                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-              >
-                {createSubmitting ? "Creating…" : "Create race"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setCreateRaceOpen(false);
-                  setCreateError(null);
-                }}
-                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+      <CreateRaceModal
+        open={createRaceOpen}
+        onClose={() => {
+          setCreateRaceOpen(false);
+          setCreateError(null);
+        }}
+        raceId={newRaceId}
+        onRaceIdChange={setNewRaceId}
+        startTime={newStartTime}
+        onStartTimeChange={setNewStartTime}
+        error={createError}
+        submitting={createSubmitting}
+        onSubmit={handleCreateRace}
+      />
 
       <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
         <div className="overflow-x-auto">

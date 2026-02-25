@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { TrashIcon } from "@heroicons/react/24/outline";
 import {
   getEntries,
   createEntry,
@@ -344,9 +345,10 @@ export default function EntriesEventPage() {
                         <button
                           type="button"
                           onClick={() => removeEntry(entry._id)}
-                          className="text-zinc-500 hover:text-red-600 dark:hover:text-red-400"
+                          className="cursor-pointer rounded p-2 text-zinc-500 hover:bg-zinc-100 hover:text-red-600 dark:hover:bg-zinc-800 dark:hover:text-red-400"
+                          aria-label="Remove"
                         >
-                          Remove
+                          <TrashIcon className="h-5 w-5" aria-hidden />
                         </button>
                       </td>
                     </tr>
@@ -411,9 +413,10 @@ export default function EntriesEventPage() {
                         <button
                           type="button"
                           onClick={() => removeNewRow(index)}
-                          className="text-sm text-zinc-500 hover:text-red-600 dark:hover:text-red-400"
+                          className="cursor-pointer rounded p-2 text-zinc-500 hover:bg-zinc-100 hover:text-red-600 dark:hover:bg-zinc-800 dark:hover:text-red-400"
+                          aria-label="Remove"
                         >
-                          Remove
+                          <TrashIcon className="h-5 w-5" aria-hidden />
                         </button>
                       </td>
                     </tr>
