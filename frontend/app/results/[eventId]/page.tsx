@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { getResultCsv, getDivisions, type Division } from "@/lib/api";
+import { parseCsv } from "@/lib/csv";
 
 /** Trigger download of text as a CSV file. */
 function downloadCsv(csv: string, filename: string) {
@@ -14,16 +15,6 @@ function downloadCsv(csv: string, filename: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
-}
-
-/** Parse CSV string into rows of cells (handles \r\n and trims). */
-function parseCsv(csv: string): string[][] {
-  const lines = csv
-    .trim()
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  return lines.map((line) => line.split(",").map((cell) => cell.trim()));
 }
 
 function ResultTable({ csv }: { csv: string }) {

@@ -14,6 +14,7 @@ import {
   type Entry,
   type Division,
 } from "@/lib/api";
+import { UploadEntriesModal } from "./UploadEntriesModal";
 
 type DivisionOption = { label: string; value: string };
 
@@ -31,6 +32,7 @@ export default function EntriesEventPage() {
   const [removedFeedback, setRemovedFeedback] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statsOpen, setStatsOpen] = useState(false);
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editSailNumber, setEditSailNumber] = useState("");
   const [editName, setEditName] = useState("");
@@ -687,6 +689,13 @@ export default function EntriesEventPage() {
           </button>
           <button
             type="button"
+            onClick={() => setUploadModalOpen(true)}
+            className="cursor-pointer text-sm font-medium text-zinc-700 underline dark:text-zinc-300"
+          >
+            Upload Files
+          </button>
+          <button
+            type="button"
             onClick={saveNewRows}
             disabled={saving || newRows.every((r) => !r.sail_number.trim())}
             className={`cursor-pointer inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
@@ -710,6 +719,18 @@ export default function EntriesEventPage() {
           )}
         </div>
       </div>
+
+      <UploadEntriesModal
+        open={uploadModalOpen}
+        onClose={() => setUploadModalOpen(false)}
+        eventId={eventId}
+        existingEntries={entries}
+        onImported={() => {
+          load();
+          setSuccessMessage("Imported");
+          setUploadModalOpen(false);
+        }}
+      />
     </div>
   );
 }
