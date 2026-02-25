@@ -27,6 +27,7 @@ export default function EntriesEventPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [removedFeedback, setRemovedFeedback] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [statsOpen, setStatsOpen] = useState(false);
   const lastNewRowSailRef = useRef<HTMLInputElement>(null);
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -268,6 +269,102 @@ export default function EntriesEventPage() {
             </svg>
           </button>
         </div>
+      )}
+
+      {/* Entry statistics accordion */}
+      {!loading && (
+        <section
+          className="mb-6 rounded-xl border border-zinc-200 bg-zinc-50/50 dark:border-zinc-800 dark:bg-zinc-900/30"
+          aria-label="Entry statistics"
+        >
+          <button
+            type="button"
+            onClick={() => setStatsOpen((prev) => !prev)}
+            aria-expanded={statsOpen}
+            aria-controls="entries-stats-content"
+            id="entries-stats-trigger"
+            className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
+          >
+            <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+              Statistics
+            </span>
+            <span className="text-zinc-500 dark:text-zinc-400">
+              {entries.length} total
+            </span>
+            <svg
+              className={`h-5 w-5 shrink-0 text-zinc-500 transition-transform dark:text-zinc-400 ${
+                statsOpen ? "rotate-180" : ""
+              }`}
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              aria-hidden
+            >
+              <path
+                fillRule="evenodd"
+                d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
+          <div
+            id="entries-stats-content"
+            role="region"
+            aria-labelledby="entries-stats-trigger"
+            className={`overflow-hidden transition-[height] duration-200 ease-out ${
+              statsOpen ? "visible" : "invisible h-0"
+            }`}
+          >
+            <div className="border-t border-zinc-200 px-4 pb-4 pt-3 dark:border-zinc-800">
+              <div className="flex flex-wrap items-baseline gap-6">
+                <div>
+                  <span className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
+                    {entries.length}
+                  </span>
+                  <span className="ml-1.5 text-sm text-zinc-600 dark:text-zinc-400">
+                    total entries
+                  </span>
+                </div>
+                {divisions.length > 0 && (
+                  <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+                    {divisions.map((div) => {
+                      const count = entries.filter(
+                        (e) => (e.division_ids ?? []).indexOf(div._id) !== -1
+                      ).length;
+                      return (
+                        <div key={div._id}>
+                          <span className="text-lg font-medium text-zinc-900 dark:text-zinc-50">
+                            {count}
+                          </span>
+                          <span className="ml-1.5 text-sm text-zinc-600 dark:text-zinc-400">
+                            {div.name}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {(() => {
+                      const unassigned = entries.filter(
+                        (e) => !(e.division_ids ?? []).length
+                      ).length;
+                      if (unassigned > 0) {
+                        return (
+                          <div>
+                            <span className="text-lg font-medium text-zinc-600 dark:text-zinc-400">
+                              {unassigned}
+                            </span>
+                            <span className="ml-1.5 text-sm text-zinc-500 dark:text-zinc-500">
+                              Unassigned
+                            </span>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
       )}
 
       <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">

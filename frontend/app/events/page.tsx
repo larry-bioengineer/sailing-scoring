@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { getEvents, createEvent, updateEvent, discardSummary, type Event } from "@/lib/api";
+import { PencilSquareIcon, TrashIcon } from "@heroicons/react/24/outline";
+import { getEvents, createEvent, updateEvent, deleteEvent, discardSummary, type Event } from "@/lib/api";
 import { EventDrawer } from "./EventDrawer";
+import { DeleteEventModal } from "./DeleteEventModal";
 
 export default function EventsPage() {
   const [events, setEvents] = useState<Event[]>([]);
@@ -19,6 +21,9 @@ export default function EventsPage() {
   const [error, setError] = useState<string | null>(null);
   /** Success toast message; shown after save, auto-dismisses. */
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  /** Event selected for deletion; modal is open when non-null. */
+  const [eventToDelete, setEventToDelete] = useState<Event | null>(null);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
   const lastDiscardInputRef = useRef<HTMLInputElement>(null);
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -173,6 +178,22 @@ export default function EventsPage() {
     }
   };
 
+  const handleConfirmDelete = async () => {
+    if (!eventToDelete) return;
+    setDeleteSubmitting(true);
+    setError(null);
+    try {
+      await deleteEvent(eventToDelete.id);
+      setEventToDelete(null);
+      await load();
+      setSuccessMessage("Event deleted.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete event");
+    } finally {
+      setDeleteSubmitting(false);
+    }
+  };
+
   return (
     <div className="py-8 px-0 sm:px-8 lg:px-10">
       {/* Success notification (Tailwind-style toast) */}
@@ -281,13 +302,24 @@ export default function EventsPage() {
                       )}
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => openEditDrawer(ev)}
-                        className="cursor-pointer rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                      >
-                        Edit
-                      </button>
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openEditDrawer(ev)}
+                          aria-label={`Edit event ${ev.id}`}
+                          className="cursor-pointer rounded-lg border border-zinc-300 bg-white p-2 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
+                        >
+                          <PencilSquareIcon className="size-5" aria-hidden />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEventToDelete(ev)}
+                          aria-label={`Delete event ${ev.id}`}
+                          className="cursor-pointer rounded-lg border border-red-200 bg-white p-2 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:bg-zinc-800 dark:text-red-400 dark:hover:bg-red-950/50 dark:hover:text-red-300"
+                        >
+                          <TrashIcon className="size-5" aria-hidden />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -311,6 +343,14 @@ export default function EventsPage() {
         error={error}
         submitting={submitting}
         onSubmit={handleSubmit}
+      />
+
+      <DeleteEventModal
+        open={eventToDelete != null}
+        onClose={() => setEventToDelete(null)}
+        eventId={eventToDelete?.id ?? ""}
+        onConfirm={handleConfirmDelete}
+        submitting={deleteSubmitting}
       />
     </div>
   );

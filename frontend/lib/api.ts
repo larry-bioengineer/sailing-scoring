@@ -117,6 +117,17 @@ export async function updateEvent(
   );
 }
 
+export async function deleteEvent(eventId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/api/events/${encodeURIComponent(eventId)}`,
+    { method: "DELETE" }
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((err as { error?: string }).error || res.statusText);
+  }
+}
+
 // ---------- Entries ----------
 
 export async function getEntries(eventId?: string): Promise<Entry[]> {
@@ -225,6 +236,17 @@ export async function createRace(payload: {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function deleteRace(raceMongoId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/api/races/${encodeURIComponent(raceMongoId)}`,
+    { method: "DELETE" }
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((err as { error?: string }).error || res.statusText);
+  }
 }
 
 // ---------- Finishes ----------

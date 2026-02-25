@@ -17,6 +17,7 @@ from ScoringEntry import (
     finish_doc,
     insert_event,
     update_event,
+    delete_event,
     insert_entry,
     delete_entry,
     update_entry,
@@ -24,6 +25,7 @@ from ScoringEntry import (
     update_division,
     delete_division,
     insert_race,
+    delete_race,
     insert_finish,
 )
 from Calculation import build_series_result, to_csv_string
@@ -106,6 +108,24 @@ def put_event(event_id):
         return jsonify({"error": "Event not found"}), 404
     out = {"id": _str_id(updated), "discard": updated.get("discard", [])}
     return jsonify(serialize_for_json(out))
+
+
+@app.route("/api/events/<event_id>", methods=["DELETE"])
+def delete_event_route(event_id):
+    if not event_id or not event_id.strip():
+        return jsonify({"error": "event_id is required"}), 400
+    event_id = event_id.strip()
+    events = load_event_info()
+    event = next((e for e in events if _str_id(e) == event_id), None)
+    if event is None:
+        return jsonify({"error": "Event not found"}), 404
+    try:
+        deleted = delete_event(event_id)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if not deleted:
+        return jsonify({"error": "Event not found"}), 404
+    return "", 204
 
 
 # ---------- Entries ----------
@@ -242,6 +262,16 @@ def post_race():
         return jsonify(serialize_for_json(out)), 201
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/races/<race_id>", methods=["DELETE"])
+def delete_race_route(race_id):
+    if not race_id or not race_id.strip():
+        return jsonify({"error": "race_id is required"}), 400
+    deleted = delete_race(race_id.strip())
+    if not deleted:
+        return jsonify({"error": "Race not found"}), 404
+    return "", 204
 
 
 # ---------- Finishes (ScoreSample) ----------

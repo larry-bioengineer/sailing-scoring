@@ -7,10 +7,12 @@ import {
   getRaces,
   getFinishes,
   createRace,
+  deleteRace,
   type Race,
   type Finish,
 } from "@/lib/api";
 import { CreateRaceModal } from "./CreateRaceModal";
+import { DeleteRaceModal } from "./DeleteRaceModal";
 
 export default function RecordEventPage() {
   const params = useParams();
@@ -26,6 +28,8 @@ export default function RecordEventPage() {
   const [newStartTime, setNewStartTime] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
   const [createSubmitting, setCreateSubmitting] = useState(false);
+  const [raceToDelete, setRaceToDelete] = useState<Race | null>(null);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
 
   const loadRaces = () => {
     if (!eventId) return;
@@ -64,6 +68,21 @@ export default function RecordEventPage() {
       setCreateError(err instanceof Error ? err.message : "Failed to create race");
     } finally {
       setCreateSubmitting(false);
+    }
+  };
+
+  const handleDeleteRace = async () => {
+    if (!raceToDelete) return;
+    setDeleteSubmitting(true);
+    try {
+      await deleteRace(raceToDelete._id);
+      if (selectedRace?._id === raceToDelete._id) setSelectedRace(null);
+      setRaceToDelete(null);
+      loadRaces();
+    } catch {
+      // Keep modal open; user can retry or cancel
+    } finally {
+      setDeleteSubmitting(false);
     }
   };
 
@@ -137,6 +156,14 @@ export default function RecordEventPage() {
         onSubmit={handleCreateRace}
       />
 
+      <DeleteRaceModal
+        open={raceToDelete !== null}
+        onClose={() => !deleteSubmitting && setRaceToDelete(null)}
+        raceId={raceToDelete?.race_id ?? ""}
+        onConfirm={handleDeleteRace}
+        submitting={deleteSubmitting}
+      />
+
       <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
         <div className="overflow-x-auto">
           <table className="min-w-full table-auto divide-y divide-zinc-200 dark:divide-zinc-800">
@@ -199,12 +226,21 @@ export default function RecordEventPage() {
                       {race.start_time}
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                      <Link
-                        href={`/record/${eventId}/enter/${encodeURIComponent(race.race_id)}`}
-                        className="text-sm font-medium text-zinc-700 underline dark:text-zinc-300"
-                      >
-                        Enter finish data
-                      </Link>
+                      <span className="flex items-center justify-end gap-3">
+                        <Link
+                          href={`/record/${eventId}/enter/${encodeURIComponent(race.race_id)}`}
+                          className="text-sm font-medium text-zinc-700 underline dark:text-zinc-300"
+                        >
+                          Enter finish data
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => setRaceToDelete(race)}
+                          className="cursor-pointer text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                        >
+                          Remove
+                        </button>
+                      </span>
                     </td>
                   </tr>
                 ))

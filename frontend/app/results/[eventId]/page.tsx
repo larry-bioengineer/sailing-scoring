@@ -131,7 +131,7 @@ export default function ResultEventPage() {
       {(divisions.length > 0 || selectedDivisionId !== "" || csv) ? (
         <div className="mb-6 flex flex-wrap items-center gap-3 justify-between">
           {(divisions.length > 0 || selectedDivisionId !== "") && (
-            <>
+            <div className="flex items-center gap-3">
               <label
                 htmlFor="division-select"
                 className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
@@ -158,7 +158,7 @@ export default function ResultEventPage() {
                       divisions.find((d) => d._id === selectedDivisionId)?.name ?? "—"
                     }`}
               </span>
-            </>
+            </div>
           )}
           {csv && (
             <button

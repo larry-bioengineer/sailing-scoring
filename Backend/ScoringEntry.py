@@ -122,6 +122,38 @@ def update_event(event_id: str, discard: list[int]) -> dict[str, Any] | None:
     return result
 
 
+def delete_event(event_id: str) -> bool:
+    """Delete an event and all related data (entries, divisions, races, finishes). Returns True if the event was deleted."""
+    if not event_id or not str(event_id).strip():
+        raise ValueError("event_id must be non-empty")
+    event_id_str = str(event_id).strip()
+    db = get_db()
+    # Resolve event _id for EventInfo (may be ObjectId or string)
+    try:
+        event_oid = ObjectId(event_id_str)
+        event_query = {"_id": event_oid}
+    except Exception:
+        event_oid = None
+        event_query = {"_id": event_id_str}
+    event_doc = db.EventInfo.find_one(event_query)
+    if not event_doc:
+        return False
+    # Delete all entries for this event
+    db.Entry.delete_many({"event_id": event_id_str})
+    # Delete all divisions for this event
+    db.Division.delete_many({"event_id": event_id_str})
+    # Delete all finishes for races of this event, then delete the races
+    races = list(db.RaceInfo.find({"event_id": event_id_str}))
+    for race in races:
+        race_id_str = str(race.get("race_id", ""))
+        if race_id_str:
+            db.ScoreSample.delete_many({"race_id": race_id_str})
+    db.RaceInfo.delete_many({"event_id": event_id_str})
+    # Delete the event
+    result = db.EventInfo.delete_one(event_query)
+    return result.deleted_count > 0
+
+
 def insert_entry(doc: dict[str, Any]) -> Any:
     """Insert one entry into Scoring.Entry. Returns inserted _id."""
     return get_db().Entry.insert_one(doc)
@@ -211,6 +243,22 @@ def delete_division(division_id: str) -> bool:
 def insert_race(doc: dict[str, Any]) -> Any:
     """Insert one race into Scoring.RaceInfo. Returns inserted _id."""
     return get_db().RaceInfo.insert_one(doc)
+
+
+def delete_race(race_mongo_id: str) -> bool:
+    """Delete one race from Scoring.RaceInfo by _id, and all finishes for that race. Returns True if the race was deleted."""
+    db = get_db()
+    try:
+        oid = ObjectId(race_mongo_id)
+    except Exception:
+        return False
+    race = db.RaceInfo.find_one({"_id": oid})
+    if not race:
+        return False
+    race_id_str = str(race.get("race_id", ""))
+    db.ScoreSample.delete_many({"race_id": race_id_str})
+    result = db.RaceInfo.delete_one({"_id": oid})
+    return result.deleted_count > 0
 
 
 def insert_finish(doc: dict[str, Any]) -> Any:
