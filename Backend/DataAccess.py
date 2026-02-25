@@ -48,3 +48,8 @@ def load_race_info() -> list[dict[str, Any]]:
 def load_finishes() -> list[dict[str, Any]]:
     """Load all finish records from Scoring.ScoreSample."""
     return list(get_db().ScoreSample.find({}))
+
+
+def load_divisions() -> list[dict[str, Any]]:
+    """Load all divisions from Scoring.Division."""
+    return list(get_db().Division.find({}))
