@@ -22,7 +22,7 @@ export default function RecordEnterRedirectPage() {
   }, [eventId, router]);
 
   return (
-    <div className="py-8 px-6 sm:px-8 lg:px-10">
+    <div className="py-8 px-0 sm:px-8 lg:px-10">
       <p className="text-sm text-zinc-500 dark:text-zinc-400">
         Redirecting… Select an event and race to enter finish data.
       </p>

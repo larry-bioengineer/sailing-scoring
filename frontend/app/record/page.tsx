@@ -18,7 +18,7 @@ export default function RecordPage() {
   }, []);
 
   return (
-    <div className="py-8 px-6 sm:px-8 lg:px-10">
+    <div className="py-8 px-0 sm:px-8 lg:px-10">
       <header className="mb-8">
         <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
           Record

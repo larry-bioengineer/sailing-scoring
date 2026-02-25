@@ -228,7 +228,7 @@ export default function DivisionsEventPage() {
 
   if (!eventId) {
     return (
-      <div className="py-8 px-6 sm:px-8 lg:px-10">
+      <div className="py-8 px-0 sm:px-8 lg:px-10">
         <p className="text-zinc-500 dark:text-zinc-400">Invalid event.</p>
         <Link href="/divisions" className="mt-4 inline-block text-sm underline">
           ← Back to Divisions
@@ -238,7 +238,7 @@ export default function DivisionsEventPage() {
   }
 
   return (
-    <div className="py-8 px-6 sm:px-8 lg:px-10">
+    <div className="py-8 px-0 sm:px-8 lg:px-10">
       {successMessage && (
         <div
           role="status"

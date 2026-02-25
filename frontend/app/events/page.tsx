@@ -174,7 +174,7 @@ export default function EventsPage() {
   };
 
   return (
-    <div className="py-8 px-6 sm:px-8 lg:px-10">
+    <div className="py-8 px-0 sm:px-8 lg:px-10">
       {/* Success notification (Tailwind-style toast) */}
       {successMessage && (
         <div

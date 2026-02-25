@@ -81,7 +81,7 @@ export default function RecordEventPage() {
 
   if (!eventId) {
     return (
-      <div className="py-8 px-6 sm:px-8 lg:px-10">
+      <div className="py-8 px-0 sm:px-8 lg:px-10">
         <p className="text-zinc-500 dark:text-zinc-400">Invalid event.</p>
         <Link href="/record" className="mt-4 inline-block text-sm underline">
           Back to Record
@@ -91,7 +91,7 @@ export default function RecordEventPage() {
   }
 
   return (
-    <div className="py-8 px-6 sm:px-8 lg:px-10">
+    <div className="py-8 px-0 sm:px-8 lg:px-10">
       <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <nav className="mb-2 text-sm text-zinc-500 dark:text-zinc-400">
