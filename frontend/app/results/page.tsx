@@ -17,7 +17,7 @@ export default function ResultsPage() {
   }, []);
 
   return (
-    <div className="py-8 px-6 sm:px-8 lg:px-10">
+    <div className="py-8 px-0 sm:px-8 lg:px-10">
       <header className="mb-8">
         <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
           Results
@@ -43,7 +43,7 @@ export default function ResultsPage() {
                     scope="col"
                     className="px-6 py-4 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50"
                   >
-                    Event ID
+                    Event name
                   </th>
                   <th
                     scope="col"
@@ -66,7 +66,7 @@ export default function ResultsPage() {
                     className="bg-white dark:bg-zinc-950 hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
                   >
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-900 dark:text-zinc-50">
-                      {ev.id}
+                      {ev.name?.trim() || "—"}
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-600 dark:text-zinc-400">
                       <span className="text-zinc-500 dark:text-zinc-400">

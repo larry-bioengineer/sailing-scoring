@@ -7,6 +7,7 @@ const API_BASE =
 
 export interface Event {
   id: string;
+  name?: string;
   discard: number[];
 }
 
@@ -21,6 +22,13 @@ export interface Entry {
   event_id: string;
   sail_number: string;
   name?: string;
+  division_ids?: string[];
+}
+
+export interface Division {
+  _id: string;
+  event_id: string;
+  name: string;
 }
 
 export interface Race {
@@ -28,6 +36,7 @@ export interface Race {
   event_id: string;
   race_id: string;
   start_time: string;
+  notes?: string;
 }
 
 export interface Finish {
@@ -81,12 +90,14 @@ export async function getEvent(eventId: string): Promise<Event> {
 }
 
 export async function createEvent(payload: {
+  name?: string;
   discard: number[] | string;
 }): Promise<Event> {
-  const body =
+  const body: { name?: string; discard: number[] | string } =
     typeof payload.discard === "string"
       ? { discard: payload.discard }
       : { discard: payload.discard };
+  if (payload.name !== undefined && payload.name !== "") body.name = payload.name;
   return fetchJson<Event>(`${API_BASE}/api/events`, {
     method: "POST",
     body: JSON.stringify(body),
@@ -95,12 +106,13 @@ export async function createEvent(payload: {
 
 export async function updateEvent(
   eventId: string,
-  payload: { discard: number[] | string }
+  payload: { name?: string; discard: number[] | string }
 ): Promise<Event> {
-  const body =
+  const body: { name?: string; discard: number[] | string } =
     typeof payload.discard === "string"
       ? { discard: payload.discard }
       : { discard: payload.discard };
+  if (payload.name !== undefined) body.name = payload.name;
   return fetchJson<Event>(
     `${API_BASE}/api/events/${encodeURIComponent(eventId)}`,
     {
@@ -108,6 +120,17 @@ export async function updateEvent(
       body: JSON.stringify(body),
     }
   );
+}
+
+export async function deleteEvent(eventId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/api/events/${encodeURIComponent(eventId)}`,
+    { method: "DELETE" }
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((err as { error?: string }).error || res.statusText);
+  }
 }
 
 // ---------- Entries ----------
@@ -124,6 +147,7 @@ export async function createEntry(payload: {
   event_id: string;
   sail_number: string;
   name?: string;
+  division_ids?: string[];
 }): Promise<Entry> {
   return fetchJson<Entry>(`${API_BASE}/api/entries`, {
     method: "POST",
@@ -131,10 +155,67 @@ export async function createEntry(payload: {
   });
 }
 
+export async function updateEntry(
+  entryId: string,
+  payload: { sail_number?: string; name?: string; division_ids?: string[] }
+): Promise<Entry> {
+  return fetchJson<Entry>(
+    `${API_BASE}/api/entries/${encodeURIComponent(entryId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
 export async function deleteEntry(entryId: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/entries/${encodeURIComponent(entryId)}`, {
     method: "DELETE",
   });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((err as { error?: string }).error || res.statusText);
+  }
+}
+
+// ---------- Divisions ----------
+
+export async function getDivisions(eventId?: string): Promise<Division[]> {
+  const url =
+    eventId != null && eventId !== ""
+      ? `${API_BASE}/api/divisions?event_id=${encodeURIComponent(eventId)}`
+      : `${API_BASE}/api/divisions`;
+  return fetchJson<Division[]>(url);
+}
+
+export async function createDivision(payload: {
+  event_id: string;
+  name: string;
+}): Promise<Division> {
+  return fetchJson<Division>(`${API_BASE}/api/divisions`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateDivision(
+  divisionId: string,
+  payload: { name: string }
+): Promise<Division> {
+  return fetchJson<Division>(
+    `${API_BASE}/api/divisions/${encodeURIComponent(divisionId)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function deleteDivision(divisionId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/api/divisions/${encodeURIComponent(divisionId)}`,
+    { method: "DELETE" }
+  );
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error((err as { error?: string }).error || res.statusText);
@@ -162,6 +243,30 @@ export async function createRace(payload: {
   });
 }
 
+export async function updateRace(
+  raceMongoId: string,
+  payload: { notes?: string }
+): Promise<Race> {
+  return fetchJson<Race>(
+    `${API_BASE}/api/races/${encodeURIComponent(raceMongoId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function deleteRace(raceMongoId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/api/races/${encodeURIComponent(raceMongoId)}`,
+    { method: "DELETE" }
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((err as { error?: string }).error || res.statusText);
+  }
+}
+
 // ---------- Finishes ----------
 
 export async function getFinishes(raceId?: string, eventId?: string): Promise<Finish[]> {
@@ -185,12 +290,37 @@ export async function createFinish(payload: {
   });
 }
 
-// ---------- Results ----------
-
-export async function getResultRows(eventId: string): Promise<ResultRow[]> {
-  return fetchJson<ResultRow[]>(`${API_BASE}/api/results/${encodeURIComponent(eventId)}`);
+export async function deleteFinish(finishId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/api/finishes/${encodeURIComponent(finishId)}`,
+    { method: "DELETE" }
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((err as { error?: string }).error || res.statusText);
+  }
 }
 
-export async function getResultCsv(eventId: string): Promise<string> {
-  return fetchText(`${API_BASE}/api/results/${encodeURIComponent(eventId)}/csv`);
+// ---------- Results ----------
+
+export async function getResultRows(
+  eventId: string,
+  divisionId?: string
+): Promise<ResultRow[]> {
+  let url = `${API_BASE}/api/results/${encodeURIComponent(eventId)}`;
+  if (divisionId != null && divisionId !== "") {
+    url += `?division_id=${encodeURIComponent(divisionId)}`;
+  }
+  return fetchJson<ResultRow[]>(url);
+}
+
+export async function getResultCsv(
+  eventId: string,
+  divisionId?: string
+): Promise<string> {
+  let url = `${API_BASE}/api/results/${encodeURIComponent(eventId)}/csv`;
+  if (divisionId != null && divisionId !== "") {
+    url += `?division_id=${encodeURIComponent(divisionId)}`;
+  }
+  return fetchText(url);
 }
