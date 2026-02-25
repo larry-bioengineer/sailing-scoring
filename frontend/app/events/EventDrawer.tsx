@@ -9,6 +9,8 @@ export interface EventDrawerProps {
   open: boolean;
   entered: boolean;
   editingEventId: string | null;
+  eventName: string;
+  onEventNameChange: (value: string) => void;
   onClose: () => void;
   onTransitionEnd: (e: React.TransitionEvent) => void;
   discardInputs: string[];
@@ -25,6 +27,8 @@ export function EventDrawer({
   open,
   entered,
   editingEventId,
+  eventName,
+  onEventNameChange,
   onClose,
   onTransitionEnd,
   discardInputs,
@@ -73,6 +77,20 @@ export function EventDrawer({
             {error && (
               <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
             )}
+            <div>
+              <label htmlFor="event-name" className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                Event name
+              </label>
+              <input
+                type="text"
+                id="event-name"
+                value={eventName}
+                onChange={(e) => onEventNameChange(e.target.value)}
+                placeholder="e.g. Spring Regatta 2025"
+                className="mt-1 block w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50"
+                aria-label="Event name"
+              />
+            </div>
             <div>
               <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                 Discard

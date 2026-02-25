@@ -21,12 +21,16 @@ from ScoringEntry import (
     insert_entry,
     delete_entry,
     update_entry,
+    get_entry,
+    entry_with_sail_number_exists,
     insert_division,
     update_division,
     delete_division,
     insert_race,
+    update_race,
     delete_race,
     insert_finish,
+    delete_finish,
 )
 from Calculation import build_series_result, to_csv_string
 from api_util import serialize_for_json
@@ -45,7 +49,7 @@ def _str_id(doc: dict) -> str:
 @app.route("/api/events", methods=["GET"])
 def get_events():
     events = load_event_info()
-    out = [{"id": _str_id(e), "discard": e.get("discard", [])} for e in events]
+    out = [{"id": _str_id(e), "name": e.get("name") or "", "discard": e.get("discard", [])} for e in events]
     out.sort(key=lambda x: x["id"], reverse=True)
     return jsonify(out)
 
@@ -59,7 +63,7 @@ def get_event(event_id):
     event = next((e for e in events if _str_id(e) == event_id), None)
     if event is None:
         return jsonify({"error": "Event not found"}), 404
-    out = {"id": _str_id(event), "discard": event.get("discard", [])}
+    out = {"id": _str_id(event), "name": event.get("name") or "", "discard": event.get("discard", [])}
     return jsonify(serialize_for_json(out))
 
 
@@ -76,10 +80,12 @@ def post_event():
             return jsonify({"error": "discard must be comma-separated integers"}), 400
     if not isinstance(discard, list) or not all(isinstance(x, int) for x in discard):
         return jsonify({"error": "discard must be a list of integers"}), 400
+    name = (data.get("name") or "").strip()
     try:
-        doc = event_doc(discard)
+        doc = event_doc(discard, name=name)
         result = insert_event(doc)
-        return jsonify(serialize_for_json({"id": result.inserted_id, "discard": doc["discard"]})), 201
+        out = {"id": result.inserted_id, "name": doc.get("name") or "", "discard": doc["discard"]}
+        return jsonify(serialize_for_json(out)), 201
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
@@ -100,13 +106,16 @@ def put_event(event_id):
             return jsonify({"error": "discard must be comma-separated integers"}), 400
     if not isinstance(discard, list) or not all(isinstance(x, int) for x in discard):
         return jsonify({"error": "discard must be a list of integers"}), 400
+    name = data.get("name")
+    if name is not None:
+        name = (name or "").strip()
     try:
-        updated = update_event(event_id, discard)
+        updated = update_event(event_id, discard, name=name)
     except Exception as e:
         return jsonify({"error": str(e)}), 400
     if updated is None:
         return jsonify({"error": "Event not found"}), 404
-    out = {"id": _str_id(updated), "discard": updated.get("discard", [])}
+    out = {"id": _str_id(updated), "name": updated.get("name") or "", "discard": updated.get("discard", [])}
     return jsonify(serialize_for_json(out))
 
 
@@ -150,6 +159,8 @@ def post_entry():
     division_ids = data.get("division_ids")
     if division_ids is not None and not isinstance(division_ids, list):
         division_ids = None
+    if entry_with_sail_number_exists(event_id, sail_number):
+        return jsonify({"error": "Duplicate sail number"}), 400
     try:
         doc = entry_doc(event_id, sail_number, name=name, division_ids=division_ids)
         result = insert_entry(doc)
@@ -175,6 +186,14 @@ def patch_entry(entry_id):
         return jsonify({"error": "entry_id is required"}), 400
     entry_id = entry_id.strip()
     data = request.get_json() or {}
+    if "sail_number" in data:
+        sail_number = (data.get("sail_number") or "").strip()
+        if sail_number:
+            existing = get_entry(entry_id)
+            if existing and entry_with_sail_number_exists(
+                existing.get("event_id", ""), sail_number, exclude_entry_id=entry_id
+            ):
+                return jsonify({"error": "Duplicate sail number"}), 400
     updated = update_entry(entry_id, data)
     if updated is None:
         return jsonify({"error": "Entry not found"}), 404
@@ -264,6 +283,27 @@ def post_race():
         return jsonify({"error": str(e)}), 400
 
 
+@app.route("/api/races/<race_mongo_id>", methods=["PATCH"])
+def patch_race(race_mongo_id):
+    if not race_mongo_id or not race_mongo_id.strip():
+        return jsonify({"error": "race_mongo_id is required"}), 400
+    data = request.get_json() or {}
+    notes = data.get("notes")
+    if notes is not None and not isinstance(notes, str):
+        notes = str(notes)
+    updated = update_race(race_mongo_id.strip(), notes)
+    if updated is None:
+        return jsonify({"error": "Race not found"}), 404
+    out = {
+        "_id": str(updated.get("_id", "")),
+        "event_id": updated.get("event_id"),
+        "race_id": updated.get("race_id"),
+        "start_time": updated.get("start_time"),
+        "notes": updated.get("notes", ""),
+    }
+    return jsonify(serialize_for_json(out))
+
+
 @app.route("/api/races/<race_id>", methods=["DELETE"])
 def delete_race_route(race_id):
     if not race_id or not race_id.strip():
@@ -307,6 +347,13 @@ def post_finish():
         return jsonify(serialize_for_json(out)), 201
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/finishes/<finish_id>", methods=["DELETE"])
+def delete_finish_route(finish_id: str):
+    if delete_finish(finish_id):
+        return "", 204
+    return jsonify({"error": "Finish not found"}), 404
 
 
 # ---------- Results ----------

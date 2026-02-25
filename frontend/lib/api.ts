@@ -7,6 +7,7 @@ const API_BASE =
 
 export interface Event {
   id: string;
+  name?: string;
   discard: number[];
 }
 
@@ -35,6 +36,7 @@ export interface Race {
   event_id: string;
   race_id: string;
   start_time: string;
+  notes?: string;
 }
 
 export interface Finish {
@@ -88,12 +90,14 @@ export async function getEvent(eventId: string): Promise<Event> {
 }
 
 export async function createEvent(payload: {
+  name?: string;
   discard: number[] | string;
 }): Promise<Event> {
-  const body =
+  const body: { name?: string; discard: number[] | string } =
     typeof payload.discard === "string"
       ? { discard: payload.discard }
       : { discard: payload.discard };
+  if (payload.name !== undefined && payload.name !== "") body.name = payload.name;
   return fetchJson<Event>(`${API_BASE}/api/events`, {
     method: "POST",
     body: JSON.stringify(body),
@@ -102,12 +106,13 @@ export async function createEvent(payload: {
 
 export async function updateEvent(
   eventId: string,
-  payload: { discard: number[] | string }
+  payload: { name?: string; discard: number[] | string }
 ): Promise<Event> {
-  const body =
+  const body: { name?: string; discard: number[] | string } =
     typeof payload.discard === "string"
       ? { discard: payload.discard }
       : { discard: payload.discard };
+  if (payload.name !== undefined) body.name = payload.name;
   return fetchJson<Event>(
     `${API_BASE}/api/events/${encodeURIComponent(eventId)}`,
     {
@@ -152,7 +157,7 @@ export async function createEntry(payload: {
 
 export async function updateEntry(
   entryId: string,
-  payload: { name?: string; division_ids?: string[] }
+  payload: { sail_number?: string; name?: string; division_ids?: string[] }
 ): Promise<Entry> {
   return fetchJson<Entry>(
     `${API_BASE}/api/entries/${encodeURIComponent(entryId)}`,
@@ -238,6 +243,19 @@ export async function createRace(payload: {
   });
 }
 
+export async function updateRace(
+  raceMongoId: string,
+  payload: { notes?: string }
+): Promise<Race> {
+  return fetchJson<Race>(
+    `${API_BASE}/api/races/${encodeURIComponent(raceMongoId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
 export async function deleteRace(raceMongoId: string): Promise<void> {
   const res = await fetch(
     `${API_BASE}/api/races/${encodeURIComponent(raceMongoId)}`,
@@ -270,6 +288,17 @@ export async function createFinish(payload: {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function deleteFinish(finishId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/api/finishes/${encodeURIComponent(finishId)}`,
+    { method: "DELETE" }
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((err as { error?: string }).error || res.statusText);
+  }
 }
 
 // ---------- Results ----------

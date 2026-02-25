@@ -15,6 +15,8 @@ export default function EventsPage() {
   /** When true, drawer panel/backdrop use "open" styles so transition runs on enter. */
   const [drawerEntered, setDrawerEntered] = useState(false);
   const drawerClosingRef = useRef(false);
+  /** Event name (for add/edit drawer). */
+  const [eventName, setEventName] = useState("");
   /** One string per row; last element is always the empty "next" row. */
   const [discardInputs, setDiscardInputs] = useState<string[]>([""]);
   const [submitting, setSubmitting] = useState(false);
@@ -74,6 +76,7 @@ export default function EventsPage() {
 
   const openAddDrawer = () => {
     setEditingEventId(null);
+    setEventName("");
     setDiscardInputs([""]);
     setError(null);
     setDrawerOpen(true);
@@ -81,6 +84,7 @@ export default function EventsPage() {
 
   const openEditDrawer = (ev: Event) => {
     setEditingEventId(ev.id);
+    setEventName(ev.name ?? "");
     setDiscardInputs([...ev.discard.map(String), ""]);
     setError(null);
     setDrawerOpen(true);
@@ -155,13 +159,14 @@ export default function EventsPage() {
         }
       }
       if (editingEventId) {
-        await updateEvent(editingEventId, { discard });
+        await updateEvent(editingEventId, { name: eventName.trim() || undefined, discard });
       } else {
-        await createEvent({ discard });
+        await createEvent({ name: eventName.trim() || undefined, discard });
       }
       setDrawerEntered(false);
       setDrawerOpen(false);
       setEditingEventId(null);
+      setEventName("");
       setDiscardInputs([""]);
       await load();
       setSuccessMessage(editingEventId ? "Event updated." : "Event saved.");
@@ -266,7 +271,7 @@ export default function EventsPage() {
                     scope="col"
                     className="px-6 py-4 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50"
                   >
-                    Event ID (auto-generated)
+                    Name
                   </th>
                   <th
                     scope="col"
@@ -289,7 +294,7 @@ export default function EventsPage() {
                     className="bg-white dark:bg-zinc-950 hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
                   >
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-900 dark:text-zinc-50">
-                      {ev.id}
+                      {ev.name?.trim() || "—"}
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-600 dark:text-zinc-400">
                       <span className="text-zinc-500 dark:text-zinc-400">
@@ -333,6 +338,8 @@ export default function EventsPage() {
         open={drawerOpen}
         entered={drawerEntered}
         editingEventId={editingEventId}
+        eventName={eventName}
+        onEventNameChange={setEventName}
         onClose={closeDrawer}
         onTransitionEnd={handleDrawerTransitionEnd}
         discardInputs={discardInputs}

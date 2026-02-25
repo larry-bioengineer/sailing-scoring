@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { TrashIcon } from "@heroicons/react/24/outline";
+import { MultiSelect } from "react-multi-select-component";
+import { PencilIcon, TrashIcon, CheckIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import {
   getEntries,
   createEntry,
@@ -13,6 +14,8 @@ import {
   type Entry,
   type Division,
 } from "@/lib/api";
+
+type DivisionOption = { label: string; value: string };
 
 export default function EntriesEventPage() {
   const params = useParams();
@@ -28,6 +31,11 @@ export default function EntriesEventPage() {
   const [removedFeedback, setRemovedFeedback] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statsOpen, setStatsOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editSailNumber, setEditSailNumber] = useState("");
+  const [editName, setEditName] = useState("");
+  const [editDivisionIds, setEditDivisionIds] = useState<string[]>([]);
+  const [savingEdit, setSavingEdit] = useState(false);
   const lastNewRowSailRef = useRef<HTMLInputElement>(null);
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -51,6 +59,42 @@ export default function EntriesEventPage() {
   useEffect(() => {
     load();
   }, [eventId]);
+
+  const divisionOptions: DivisionOption[] = useMemo(
+    () => divisions.map((d) => ({ label: d.name, value: d._id })),
+    [divisions]
+  );
+
+  /** Normalize sail number for duplicate comparison: trim, remove all whitespace, lower. */
+  const normalizeSail = (s: string) =>
+    (s ?? "").trim().toLowerCase().replace(/\s+/g, "");
+
+  /** Set of normalized sail numbers from existing entries. */
+  const existingSailSet = useMemo(
+    () => new Set(entries.map((e) => normalizeSail(e.sail_number))),
+    [entries]
+  );
+
+  /** True if this sail number is already used by another entry (or another new row). */
+  const isNewRowSailDuplicate = (rowIndex: number): boolean => {
+    const sail = newRows[rowIndex]?.sail_number ?? "";
+    const norm = normalizeSail(sail);
+    if (!norm) return false;
+    if (existingSailSet.has(norm)) return true;
+    const count = newRows.filter((_, i) => normalizeSail(newRows[i].sail_number) === norm).length;
+    return count > 1;
+  };
+
+  /** True if the current edit sail number is a duplicate (used by another entry). */
+  const isEditSailDuplicate = (): boolean => {
+    const norm = normalizeSail(editSailNumber);
+    if (!norm) return false;
+    const other = entries.find((e) => e._id !== editingId && normalizeSail(e.sail_number) === norm);
+    return !!other;
+  };
+
+  const idsToSelected = (ids: string[]): DivisionOption[] =>
+    (ids ?? []).map((id) => divisionOptions.find((o) => o.value === id) ?? { label: id, value: id }).filter(Boolean) as DivisionOption[];
 
   /** Auto-dismiss success notification after 4 seconds. */
   useEffect(() => {
@@ -81,25 +125,60 @@ export default function EntriesEventPage() {
     });
   };
 
-  const setNewRowDivision = (rowIndex: number, divisionId: string) => {
+  const setNewRowDivision = (rowIndex: number, divisionIds: string[]) => {
     setNewRows((prev) => {
       const next = [...prev];
-      next[rowIndex] = {
-        ...next[rowIndex],
-        division_ids: divisionId ? [divisionId] : [],
-      };
+      next[rowIndex] = { ...next[rowIndex], division_ids: divisionIds ?? [] };
       return next;
     });
   };
 
-  const setEntryDivision = async (entry: Entry, divisionId: string) => {
-    const nextIds = divisionId ? [divisionId] : [];
+  const saveEntryDivisions = async (entry: Entry, divisionIds: string[]) => {
+    if (editingId === entry._id) return;
     setError(null);
     try {
-      await updateEntry(entry._id, { division_ids: nextIds });
+      await updateEntry(entry._id, { division_ids: divisionIds });
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to update divisions");
+    }
+  };
+
+  const startEdit = (entry: Entry) => {
+    setEditingId(entry._id);
+    setEditSailNumber(entry.sail_number);
+    setEditName(entry.name ?? "");
+    setEditDivisionIds(entry.division_ids ?? []);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditSailNumber("");
+    setEditName("");
+    setEditDivisionIds([]);
+  };
+
+  const saveEdit = async () => {
+    if (!editingId || !editSailNumber.trim()) return;
+    if (isEditSailDuplicate()) {
+      setError("Duplicate sail number");
+      return;
+    }
+    setError(null);
+    setSavingEdit(true);
+    try {
+      await updateEntry(editingId, {
+        sail_number: editSailNumber.trim(),
+        name: editName.trim() || undefined,
+        division_ids: editDivisionIds.length ? editDivisionIds : undefined,
+      });
+      showSavedFeedback();
+      cancelEdit();
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save changes");
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -130,6 +209,15 @@ export default function EntriesEventPage() {
   const saveNewRows = async () => {
     const toSave = newRows.filter((r) => r.sail_number.trim() !== "");
     if (toSave.length === 0) return;
+    const seen = new Set<string>();
+    for (const row of toSave) {
+      const norm = normalizeSail(row.sail_number);
+      if (existingSailSet.has(norm) || seen.has(norm)) {
+        setError("Duplicate sail number");
+        return;
+      }
+      seen.add(norm);
+    }
     setError(null);
     setSaving(true);
     try {
@@ -156,6 +244,10 @@ export default function EntriesEventPage() {
     if (!row?.sail_number.trim()) {
       addRow();
       setTimeout(() => lastNewRowSailRef.current?.focus(), 0);
+      return;
+    }
+    if (isNewRowSailDuplicate(index)) {
+      setError("Duplicate sail number");
       return;
     }
     setError(null);
@@ -220,12 +312,6 @@ export default function EntriesEventPage() {
           Spreadsheet: add sail number and name, then save.
         </p>
       </header>
-
-      {error && (
-        <p className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">
-          {error}
-        </p>
-      )}
 
       {removedFeedback && (
         <p className="mb-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400">
@@ -409,47 +495,111 @@ export default function EntriesEventPage() {
                 </tr>
               ) : (
                 <>
-                  {entries.map((entry) => (
-                    <tr
-                      key={entry._id}
-                      className="bg-white dark:bg-zinc-950 hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
-                    >
-                      <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-900 dark:text-zinc-50">
-                        {entry.sail_number}
-                      </td>
-                      <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-600 dark:text-zinc-400">
-                        {entry.name ?? "—"}
-                      </td>
-                      {divisions.length > 0 && (
-                        <td className="px-6 py-4 text-sm">
-                          <select
-                            value={(entry.division_ids ?? [])[0] ?? ""}
-                            onChange={(e) =>
-                              setEntryDivision(entry, e.target.value)
-                            }
-                            className="min-w-[8rem] rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50"
-                          >
-                            <option value="">—</option>
-                            {divisions.map((div) => (
-                              <option key={div._id} value={div._id}>
-                                {div.name}
-                              </option>
-                            ))}
-                          </select>
+                  {entries.map((entry) => {
+                    const isEditing = editingId === entry._id;
+                    return (
+                      <tr
+                        key={entry._id}
+                        className="bg-white dark:bg-zinc-950 hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
+                      >
+                        <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-900 dark:text-zinc-50">
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              value={editSailNumber}
+                              onChange={(e) => setEditSailNumber(e.target.value)}
+                              className={`w-full min-w-[6rem] rounded border px-2 py-1.5 text-sm dark:bg-zinc-900 dark:text-zinc-50 ${
+                                isEditSailDuplicate()
+                                  ? "border-red-500 dark:border-red-500"
+                                  : "border-zinc-300 dark:border-zinc-600"
+                              }`}
+                              placeholder="Sail number"
+                              aria-invalid={isEditSailDuplicate()}
+                            />
+                          ) : (
+                            entry.sail_number
+                          )}
                         </td>
-                      )}
-                      <td className="whitespace-nowrap px-6 py-4 text-sm">
-                        <button
-                          type="button"
-                          onClick={() => removeEntry(entry._id)}
-                          className="cursor-pointer rounded p-2 text-zinc-500 hover:bg-zinc-100 hover:text-red-600 dark:hover:bg-zinc-800 dark:hover:text-red-400"
-                          aria-label="Remove"
-                        >
-                          <TrashIcon className="h-5 w-5" aria-hidden />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                        <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-600 dark:text-zinc-400">
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                              className="w-full min-w-[8rem] rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50"
+                              placeholder="Name"
+                            />
+                          ) : (
+                            entry.name ?? "—"
+                          )}
+                        </td>
+                        {divisions.length > 0 && (
+                          <td className="min-w-[12rem] px-6 py-4 text-sm">
+                            <MultiSelect
+                              options={divisionOptions}
+                              value={idsToSelected(
+                                isEditing ? editDivisionIds : entry.division_ids ?? []
+                              )}
+                              onChange={(selected: DivisionOption[]) =>
+                                isEditing
+                                  ? setEditDivisionIds(selected.map((s) => s.value))
+                                  : saveEntryDivisions(
+                                      entry,
+                                      selected.map((s) => s.value)
+                                    )
+                              }
+                              labelledBy="Divisions"
+                              disableSearch={divisionOptions.length <= 8}
+                              className="min-w-[10rem] rounded border border-zinc-300 bg-white text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50 [&_.dropdown-heading]:min-h-[2.25rem] [&_.dropdown-heading]:rounded [&_.dropdown-heading]:border-0 [&_.dropdown-heading]:py-1.5"
+                            />
+                          </td>
+                        )}
+                        <td className="whitespace-nowrap px-6 py-4 text-sm">
+                          {isEditing ? (
+                            <span className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={saveEdit}
+                                disabled={savingEdit || !editSailNumber.trim() || isEditSailDuplicate()}
+                                className="cursor-pointer rounded p-2 text-zinc-500 hover:bg-zinc-100 hover:text-emerald-600 dark:hover:bg-zinc-800 dark:hover:text-emerald-400 disabled:opacity-50"
+                                aria-label="Save"
+                              >
+                                <CheckIcon className="h-5 w-5" aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEdit}
+                                disabled={savingEdit}
+                                className="cursor-pointer rounded p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 disabled:opacity-50"
+                                aria-label="Cancel"
+                              >
+                                <XMarkIcon className="h-5 w-5" aria-hidden />
+                              </button>
+                            </span>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => startEdit(entry)}
+                                className="cursor-pointer rounded p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+                                aria-label="Edit"
+                              >
+                                <PencilIcon className="h-5 w-5" aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeEntry(entry._id)}
+                                className="cursor-pointer rounded p-2 text-zinc-500 hover:bg-zinc-100 hover:text-red-600 dark:hover:bg-zinc-800 dark:hover:text-red-400"
+                                aria-label="Remove"
+                              >
+                                <TrashIcon className="h-5 w-5" aria-hidden />
+                              </button>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {newRows.map((row, index) => (
                     <tr
                       key={`new-${index}`}
@@ -471,7 +621,12 @@ export default function EntriesEventPage() {
                             handleNewRowKeyDown(index, "sail_number", e)
                           }
                           placeholder="e.g. 1"
-                          className="w-full min-w-[6rem] rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50"
+                          className={`w-full min-w-[6rem] rounded border px-2 py-1.5 text-sm dark:bg-zinc-900 dark:text-zinc-50 ${
+                            isNewRowSailDuplicate(index)
+                              ? "border-red-500 dark:border-red-500"
+                              : "border-zinc-300 dark:border-zinc-600"
+                          }`}
+                          aria-invalid={isNewRowSailDuplicate(index)}
                         />
                       </td>
                       <td className="px-6 py-2">
@@ -489,21 +644,20 @@ export default function EntriesEventPage() {
                         />
                       </td>
                       {divisions.length > 0 && (
-                        <td className="px-6 py-2">
-                          <select
-                            value={(row.division_ids ?? [])[0] ?? ""}
-                            onChange={(e) =>
-                              setNewRowDivision(index, e.target.value)
+                        <td className="min-w-[12rem] px-6 py-2">
+                          <MultiSelect
+                            options={divisionOptions}
+                            value={idsToSelected(row.division_ids ?? [])}
+                            onChange={(selected: DivisionOption[]) =>
+                              setNewRowDivision(
+                                index,
+                                selected.map((s) => s.value)
+                              )
                             }
-                            className="min-w-[8rem] rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50"
-                          >
-                            <option value="">—</option>
-                            {divisions.map((div) => (
-                              <option key={div._id} value={div._id}>
-                                {div.name}
-                              </option>
-                            ))}
-                          </select>
+                            labelledBy="Divisions"
+                            disableSearch={divisionOptions.length <= 8}
+                            className="min-w-[10rem] rounded border border-zinc-300 bg-white text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50 [&_.dropdown-heading]:min-h-[2.25rem] [&_.dropdown-heading]:rounded [&_.dropdown-heading]:border-0 [&_.dropdown-heading]:py-1.5"
+                          />
                         </td>
                       )}
                       <td className="px-6 py-2">
@@ -527,7 +681,7 @@ export default function EntriesEventPage() {
           <button
             type="button"
             onClick={addRow}
-            className="text-sm font-medium text-zinc-700 underline dark:text-zinc-300"
+            className="cursor-pointer text-sm font-medium text-zinc-700 underline dark:text-zinc-300"
           >
             + Add row
           </button>
@@ -535,7 +689,7 @@ export default function EntriesEventPage() {
             type="button"
             onClick={saveNewRows}
             disabled={saving || newRows.every((r) => !r.sail_number.trim())}
-            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
+            className={`cursor-pointer inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
               successMessage
                 ? "bg-emerald-600 text-white dark:bg-emerald-600"
                 : "bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
@@ -549,6 +703,11 @@ export default function EntriesEventPage() {
               "Save new entries"
             )}
           </button>
+          {error && (
+            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">
+              {error}
+            </p>
+          )}
         </div>
       </div>
     </div>

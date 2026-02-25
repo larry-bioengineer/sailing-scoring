@@ -40,7 +40,7 @@ export default function DivisionsPage() {
                     scope="col"
                     className="px-6 py-4 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50"
                   >
-                    Event ID
+                    Event name
                   </th>
                   <th
                     scope="col"
@@ -82,7 +82,7 @@ export default function DivisionsPage() {
                       className="cursor-pointer bg-white dark:bg-zinc-950 hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors"
                     >
                       <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                        {ev.id}
+                        {ev.name?.trim() || "—"}
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-600 dark:text-zinc-400">
                         {discardSummary(ev.discard?.length ?? 0)}
