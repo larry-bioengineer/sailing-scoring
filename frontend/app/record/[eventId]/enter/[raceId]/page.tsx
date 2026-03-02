@@ -1,23 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Menu, MenuButton, MenuItems } from "@headlessui/react";
 import { ChevronDownIcon } from "@heroicons/react/16/solid";
-import { InformationCircleIcon, TrashIcon } from "@heroicons/react/24/outline";
+import { InformationCircleIcon, PencilSquareIcon, TrashIcon } from "@heroicons/react/24/outline";
 import {
   getRaces,
   getFinishes,
   getEntries,
+  getDivisions,
+  getEvent,
   createFinish,
+  updateFinish,
   deleteFinish,
   type Finish,
   type Race,
   type Entry,
 } from "@/lib/api";
 import { DeleteFinishModal } from "./DeleteFinishModal";
+import { EditFinishModal } from "./EditFinishModal";
 import { EntriesLookupModal } from "./EntriesLookupModal";
+import { ImageToFinishModal } from "./ImageToFinishModal";
 import { RaceNotesEditor } from "./RaceNotesEditor";
 
 /** Normalize sail number for comparison: trim and remove all whitespace so "123", " 123", "12 3" match. */
@@ -74,9 +80,11 @@ export default function RecordEnterRacePage() {
   const raceId = typeof params.raceId === "string" ? params.raceId : "";
   const [raceValid, setRaceValid] = useState<boolean | null>(null);
   const [currentRace, setCurrentRace] = useState<Race | null>(null);
+  const [eventName, setEventName] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"finish" | "notes">("finish");
   const [entries, setEntries] = useState<Entry[]>([]);
   const [entriesLoading, setEntriesLoading] = useState(true);
+  const [divisions, setDivisions] = useState<Awaited<ReturnType<typeof getDivisions>>>([]);
   const [finishes, setFinishes] = useState<Finish[]>([]);
   const [finishesLoading, setFinishesLoading] = useState(true);
   const [newRows, setNewRows] = useState<NewRow[]>([
@@ -85,8 +93,28 @@ export default function RecordEnterRacePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [finishToDelete, setFinishToDelete] = useState<Finish | null>(null);
+  const [finishToEdit, setFinishToEdit] = useState<Finish | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [entriesModalOpen, setEntriesModalOpen] = useState(false);
+  const [imageImportModalOpen, setImageImportModalOpen] = useState(false);
+  /** Batch RC: comma-separated sail numbers and single rc_scoring value. */
+  const [batchRcSailNumbers, setBatchRcSailNumbers] = useState("");
+  const [batchRcScoring, setBatchRcScoring] = useState("");
+  const [batchRcSaving, setBatchRcSaving] = useState(false);
+  /** Row index whose sail number input is focused (for showing suggestions). Cleared on blur with delay. */
+  const [focusedSailInputRow, setFocusedSailInputRow] = useState<number | null>(null);
+  const sailBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sailInputRef = useRef<HTMLInputElement | null>(null);
+  /** Fixed position for the sail suggestions dropdown (so it isn't clipped by table overflow). */
+  const [sailDropdownRect, setSailDropdownRect] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
+  /** Ref for the last new row (used to scroll into view after Enter/save or Add row). */
+  const lastNewRowRef = useRef<HTMLTableRowElement | null>(null);
+  const prevNewRowsLengthRef = useRef(newRows.length);
 
   useEffect(() => {
     if (!eventId || !raceId) {
@@ -108,6 +136,16 @@ export default function RecordEnterRacePage() {
 
   useEffect(() => {
     if (!eventId) {
+      setEventName(null);
+      return;
+    }
+    getEvent(eventId)
+      .then((ev) => setEventName(ev.name?.trim() ?? null))
+      .catch(() => setEventName(null));
+  }, [eventId]);
+
+  useEffect(() => {
+    if (!eventId) {
       setEntries([]);
       setEntriesLoading(false);
       return;
@@ -118,6 +156,41 @@ export default function RecordEnterRacePage() {
       .catch(() => setEntries([]))
       .finally(() => setEntriesLoading(false));
   }, [eventId]);
+
+  useEffect(() => {
+    if (!eventId) {
+      setDivisions([]);
+      return;
+    }
+    getDivisions(eventId)
+      .then(setDivisions)
+      .catch(() => setDivisions([]));
+  }, [eventId]);
+
+  useEffect(() => {
+    return () => {
+      if (sailBlurTimeoutRef.current) clearTimeout(sailBlurTimeoutRef.current);
+    };
+  }, []);
+
+  /** Position the sail suggestions dropdown with fixed coords so it isn't clipped by overflow-x-auto. */
+  useEffect(() => {
+    if (focusedSailInputRow === null) {
+      setSailDropdownRect(null);
+      return;
+    }
+    const el = sailInputRef.current;
+    if (!el) {
+      setSailDropdownRect(null);
+      return;
+    }
+    const rect = el.getBoundingClientRect();
+    setSailDropdownRect({
+      top: rect.bottom + 4,
+      left: rect.left,
+      width: rect.width,
+    });
+  }, [focusedSailInputRow]);
 
   useEffect(() => {
     if (!raceId || raceValid !== true) {
@@ -138,6 +211,19 @@ export default function RecordEnterRacePage() {
       { sail_number: "", finish_time: "", rc_scoring: "" },
     ]);
   };
+
+  /** After new rows are added (e.g. + Add row), scroll to reveal the new row with margin. */
+  useEffect(() => {
+    if (newRows.length > prevNewRowsLengthRef.current) {
+      prevNewRowsLengthRef.current = newRows.length;
+      const t = setTimeout(() => {
+        lastNewRowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 100);
+      return () => clearTimeout(t);
+    }
+    prevNewRowsLengthRef.current = newRows.length;
+    return undefined;
+  }, [newRows.length]);
 
   const updateNewRow = (
     index: number,
@@ -174,6 +260,50 @@ export default function RecordEnterRacePage() {
   const validSailNumbersSet = new Set(
     entries.map((e) => normalizeSailNumber(e.sail_number))
   );
+
+  const divisionNames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const d of divisions) map.set(d._id, d.name);
+    return map;
+  }, [divisions]);
+
+  const entryBySail = useMemo(() => {
+    const map = new Map<string, Entry>();
+    for (const e of entries) map.set(normalizeSailNumber(e.sail_number), e);
+    return map;
+  }, [entries]);
+
+  /** Current race finishes by normalized sail number (for batch: update existing vs create new). */
+  const finishBySail = useMemo(() => {
+    const map = new Map<string, Finish>();
+    for (const f of finishes) map.set(normalizeSailNumber(f.sail_number), f);
+    return map;
+  }, [finishes]);
+
+  /** Division label for a sail number (e.g. "Laser, Radial" or "—"). */
+  const getDivisionLabel = (sailNumber: string): string => {
+    const entry = entryBySail.get(normalizeSailNumber(sailNumber));
+    if (!entry?.division_ids?.length) return "—";
+    const names = (entry.division_ids ?? [])
+      .map((id) => divisionNames.get(id) ?? id)
+      .filter(Boolean);
+    return names.length ? names.join(", ") : "—";
+  };
+
+  /** Up to 3 entries whose sail number starts with or includes the given input (for new-row suggestions). */
+  const getSuggestionsForRow = (rowIndex: number): Entry[] => {
+    const q = normalizeSailNumber(newRows[rowIndex]?.sail_number ?? "");
+    if (q.length < 1) return [];
+    const startsWith = entries.filter((e) =>
+      normalizeSailNumber(e.sail_number).startsWith(q)
+    );
+    const includes = entries.filter(
+      (e) =>
+        !normalizeSailNumber(e.sail_number).startsWith(q) &&
+        normalizeSailNumber(e.sail_number).includes(q)
+    );
+    return [...startsWith, ...includes].slice(0, 3);
+  };
 
   /** True if the sail number is non-empty and not in the event's entries (after normalizing). */
   const isSailNumberInvalid = (sailNumber: string): boolean => {
@@ -219,6 +349,10 @@ export default function RecordEnterRacePage() {
       setNewRows([{ sail_number: "", finish_time: "", rc_scoring: "" }]);
       const data = await getFinishes(raceId, undefined);
       setFinishes(data);
+      // Scroll to reveal the new empty row with margin after save (e.g. after Enter).
+      setTimeout(() => {
+        lastNewRowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 120);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");
     } finally {
@@ -242,6 +376,79 @@ export default function RecordEnterRacePage() {
     }
   };
 
+  const confirmEditFinish = async (payload: {
+    sail_number: string;
+    finish_time: string;
+    rc_scoring?: string;
+  }) => {
+    if (!finishToEdit || !raceId) return;
+    setEditing(true);
+    setError(null);
+    try {
+      await updateFinish(finishToEdit._id, payload);
+      setFinishToEdit(null);
+      const data = await getFinishes(raceId, undefined);
+      setFinishes(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to update finish");
+    } finally {
+      setEditing(false);
+    }
+  };
+
+  /** Finish time for batch RC: use first entry in the record list, or 00:00:01 if none. */
+  const batchRcFinishTime =
+    finishes.length > 0 ? finishes[0].finish_time : "00:00:01";
+
+  const saveBatchRc = async () => {
+    const sailNumbers = batchRcSailNumbers
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (sailNumbers.length === 0 || !raceId) {
+      setError("Enter at least one sail number.");
+      return;
+    }
+    const rcValue = batchRcScoring.trim() || undefined;
+    if (!rcValue) {
+      setError("Enter a Score by RC value (e.g. DNF, OCS).");
+      return;
+    }
+    const invalid = sailNumbers.filter(
+      (s) => !validSailNumbersSet.has(normalizeSailNumber(s))
+    );
+    if (invalid.length > 0) {
+      setError(`Sail number(s) not in entries: ${invalid.join(", ")}`);
+      return;
+    }
+    setError(null);
+    setBatchRcSaving(true);
+    try {
+      for (const sail_number of sailNumbers) {
+        const normalized = normalizeSailNumber(sail_number);
+        const existing = finishBySail.get(normalized);
+        if (existing) {
+          await updateFinish(existing._id, { rc_scoring: rcValue });
+        } else {
+          await createFinish({
+            sail_number: sail_number.trim(),
+            race_id: raceId,
+            finish_time: batchRcFinishTime,
+            rc_scoring: rcValue,
+          });
+        }
+      }
+      setBatchRcSailNumbers("");
+      setBatchRcScoring("");
+      const data = await getFinishes(raceId, undefined);
+      setFinishes(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save batch");
+    } finally {
+      setBatchRcSaving(false);
+    }
+  };
+
   if (!eventId || !raceId) {
     return (
       <div className="pb-8 px-0 sm:px-8 lg:px-10">
@@ -260,7 +467,7 @@ export default function RecordEnterRacePage() {
           Race not found for this event.
         </p>
         <Link href={`/record/${eventId}`} className="mt-4 inline-block text-sm underline">
-          Back to Event {eventId}
+          Back to {eventName ?? eventId}
         </Link>
       </div>
     );
@@ -285,9 +492,9 @@ export default function RecordEnterRacePage() {
               whiteSpace: 'nowrap',
               display: 'inline-block'
             }}
-            title={`Event ${eventId}`}
+            title={eventName ?? eventId}
           >
-            Event {eventId}
+            {eventName ?? eventId}
           </Link>
           <span className="mx-2">/</span>
           <span className="text-zinc-700 dark:text-zinc-300">
@@ -419,7 +626,12 @@ export default function RecordEnterRacePage() {
                       className="bg-white dark:bg-zinc-950 hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
                     >
                       <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-900 dark:text-zinc-50">
-                        {f.sail_number}
+                        <span>{f.sail_number}</span>
+                        {getDivisionLabel(f.sail_number) !== "—" && (
+                          <span className="ml-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                            · {getDivisionLabel(f.sail_number)}
+                          </span>
+                        )}
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-600 dark:text-zinc-400">
                         {f.finish_time}
@@ -428,38 +640,66 @@ export default function RecordEnterRacePage() {
                         {f.rc_scoring ?? "—"}
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-sm">
-                        <button
-                          type="button"
-                          onClick={() => setFinishToDelete(f)}
-                          aria-label={`Remove finish for ${f.sail_number}`}
-                          className="cursor-pointer rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-red-600 dark:hover:bg-zinc-800 dark:hover:text-red-400"
-                        >
-                          <TrashIcon className="h-5 w-5" />
-                        </button>
+                        <span className="inline-flex items-center gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => setFinishToEdit(f)}
+                            aria-label={`Edit finish for ${f.sail_number}`}
+                            className="cursor-pointer rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-indigo-600 dark:hover:bg-zinc-800 dark:hover:text-indigo-400"
+                          >
+                            <PencilSquareIcon className="h-5 w-5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFinishToDelete(f)}
+                            aria-label={`Remove finish for ${f.sail_number}`}
+                            className="cursor-pointer rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-red-600 dark:hover:bg-zinc-800 dark:hover:text-red-400"
+                          >
+                            <TrashIcon className="h-5 w-5" />
+                          </button>
+                        </span>
                       </td>
                     </tr>
                   ))}
                   {newRows.map((row, index) => (
                     <tr
                       key={`new-${index}`}
+                      ref={index === newRows.length - 1 ? lastNewRowRef : undefined}
                       className="bg-zinc-50/50 dark:bg-zinc-900/30"
+                      style={index === newRows.length - 1 ? { scrollMarginTop: 48, scrollMarginBottom: 48 } : undefined}
                     >
                       <td className="px-6 py-2">
-                        <input
-                          type="text"
-                          value={row.sail_number}
-                          onChange={(e) =>
-                            updateNewRow(index, "sail_number", e.target.value)
-                          }
-                          onKeyDown={(e) => handleNewRowKeyDown(index, e)}
-                          placeholder="e.g. 1"
-                          className={`w-full min-w-[5rem] rounded border bg-white px-2 py-1.5 text-sm dark:bg-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 ${
-                            !entriesLoading && isSailNumberInvalid(row.sail_number)
-                              ? "border-red-500 focus:border-red-500 focus:ring-red-500/50 dark:border-red-500 dark:focus:border-red-500 dark:focus:ring-red-500/50"
-                              : "border-zinc-300 focus:border-zinc-400 focus:ring-zinc-300 dark:border-zinc-600 dark:focus:border-zinc-500 dark:focus:ring-zinc-700"
-                          }`}
-                          aria-invalid={!entriesLoading && isSailNumberInvalid(row.sail_number)}
-                        />
+                        <div className="relative">
+                          <input
+                            ref={focusedSailInputRow === index ? sailInputRef : undefined}
+                            type="text"
+                            value={row.sail_number}
+                            onChange={(e) =>
+                              updateNewRow(index, "sail_number", e.target.value)
+                            }
+                            onFocus={() => {
+                              if (sailBlurTimeoutRef.current) {
+                                clearTimeout(sailBlurTimeoutRef.current);
+                                sailBlurTimeoutRef.current = null;
+                              }
+                              setFocusedSailInputRow(index);
+                            }}
+                            onBlur={() => {
+                              sailBlurTimeoutRef.current = setTimeout(() => {
+                                setFocusedSailInputRow(null);
+                                sailBlurTimeoutRef.current = null;
+                              }, 150);
+                            }}
+                            onKeyDown={(e) => handleNewRowKeyDown(index, e)}
+                            placeholder="e.g. 1"
+                            className={`w-full min-w-[5rem] rounded border bg-white px-2 py-1.5 text-sm dark:bg-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 ${
+                              !entriesLoading && isSailNumberInvalid(row.sail_number)
+                                ? "border-red-500 focus:border-red-500 focus:ring-red-500/50 dark:border-red-500 dark:focus:border-red-500 dark:focus:ring-red-500/50"
+                                : "border-zinc-300 focus:border-zinc-400 focus:ring-zinc-300 dark:border-zinc-600 dark:focus:border-zinc-500 dark:focus:ring-zinc-700"
+                            }`}
+                            aria-invalid={!entriesLoading && isSailNumberInvalid(row.sail_number)}
+                          />
+                        </div>
                       </td>
                       <td className="px-6 py-2">
                         <input
@@ -512,6 +752,13 @@ export default function RecordEnterRacePage() {
           </button>
           <button
             type="button"
+            onClick={() => setImageImportModalOpen(true)}
+            className="text-sm font-medium text-zinc-700 underline dark:text-zinc-300 cursor-pointer"
+          >
+            Import from image
+          </button>
+          <button
+            type="button"
             onClick={saveNewRows}
             disabled={
               saving ||
@@ -522,6 +769,44 @@ export default function RecordEnterRacePage() {
           >
             {saving ? "Saving…" : "Save new finishes"}
           </button>
+        </div>
+        <div className="border-t border-zinc-200 px-6 py-4 dark:border-zinc-800">
+          <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+            Batch add (Score by RC)
+          </p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
+            Add multiple sail numbers with the same Score by RC. Sail numbers already in the record list are updated; others are added with the first entry’s finish time (irrelevant for scoring).
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">Sail numbers (comma-separated)</span>
+              <input
+                type="text"
+                value={batchRcSailNumbers}
+                onChange={(e) => setBatchRcSailNumbers(e.target.value)}
+                placeholder="e.g. 1, 2, 3, 4"
+                className="min-w-[12rem] rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">Score by RC</span>
+              <input
+                type="text"
+                value={batchRcScoring}
+                onChange={(e) => setBatchRcScoring(e.target.value)}
+                placeholder="e.g. DNF, OCS"
+                className="min-w-[6rem] rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={saveBatchRc}
+              disabled={batchRcSaving || !batchRcSailNumbers.trim() || !batchRcScoring.trim()}
+              className="cursor-pointer rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            >
+              {batchRcSaving ? "Adding…" : "Add batch"}
+            </button>
+          </div>
         </div>
       </div>
       )}
@@ -547,6 +832,48 @@ export default function RecordEnterRacePage() {
         </div>
       )}
 
+      {typeof document !== "undefined" &&
+        focusedSailInputRow !== null &&
+        sailDropdownRect !== null &&
+        newRows[focusedSailInputRow]?.sail_number.trim().length >= 1 &&
+        createPortal(
+          <ul
+            className="fixed z-[100] min-w-[12rem] rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+            role="listbox"
+            style={{
+              top: sailDropdownRect.top,
+              left: sailDropdownRect.left,
+              minWidth: Math.max(sailDropdownRect.width, 192),
+            }}
+          >
+            {getSuggestionsForRow(focusedSailInputRow).map((entry) => (
+              <li key={entry._id} role="option">
+                <button
+                  type="button"
+                  className="w-full cursor-pointer px-3 py-1.5 text-left text-sm text-zinc-900 hover:bg-zinc-100 dark:text-zinc-50 dark:hover:bg-zinc-800"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    updateNewRow(focusedSailInputRow, "sail_number", entry.sail_number);
+                    setFocusedSailInputRow(null);
+                    if (sailBlurTimeoutRef.current) {
+                      clearTimeout(sailBlurTimeoutRef.current);
+                      sailBlurTimeoutRef.current = null;
+                    }
+                  }}
+                >
+                  <span className="font-medium">{entry.sail_number}</span>
+                  {getDivisionLabel(entry.sail_number) !== "—" && (
+                    <span className="ml-1.5 text-zinc-500 dark:text-zinc-400">
+                      · {getDivisionLabel(entry.sail_number)}
+                    </span>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>,
+          document.body
+        )}
+
       <DeleteFinishModal
         open={finishToDelete !== null}
         onClose={() => setFinishToDelete(null)}
@@ -555,11 +882,47 @@ export default function RecordEnterRacePage() {
         onConfirm={confirmRemoveFinish}
         submitting={deleting}
       />
+      <EditFinishModal
+        open={finishToEdit !== null}
+        onClose={() => setFinishToEdit(null)}
+        finish={finishToEdit}
+        entries={entries}
+        onSave={confirmEditFinish}
+        submitting={editing}
+      />
       <EntriesLookupModal
         open={entriesModalOpen}
         onClose={() => setEntriesModalOpen(false)}
         entries={entries}
         eventId={eventId}
+      />
+      <ImageToFinishModal
+        open={imageImportModalOpen}
+        onClose={() => setImageImportModalOpen(false)}
+        entries={entries}
+        onAppend={(sailNumbers) => {
+          setNewRows((prev) => [
+            ...prev,
+            ...sailNumbers.map((s) => ({
+              sail_number: s,
+              finish_time: "",
+              rc_scoring: "",
+            })),
+          ]);
+        }}
+        onReplace={(sailNumbers) => {
+          if (sailNumbers.length === 0) {
+            setNewRows([{ sail_number: "", finish_time: "", rc_scoring: "" }]);
+          } else {
+            setNewRows(
+              sailNumbers.map((s) => ({
+                sail_number: s,
+                finish_time: "",
+                rc_scoring: "",
+              }))
+            );
+          }
+        }}
       />
     </div>
   );

@@ -36,6 +36,7 @@ export interface Race {
   event_id: string;
   race_id: string;
   start_time: string;
+  date?: string;
   notes?: string;
 }
 
@@ -236,6 +237,7 @@ export async function createRace(payload: {
   event_id: string;
   race_id: string;
   start_time: string;
+  date: string;
 }): Promise<Race> {
   return fetchJson<Race>(`${API_BASE}/api/races`, {
     method: "POST",
@@ -245,7 +247,7 @@ export async function createRace(payload: {
 
 export async function updateRace(
   raceMongoId: string,
-  payload: { notes?: string }
+  payload: { notes?: string; race_id?: string; start_time?: string; date?: string }
 ): Promise<Race> {
   return fetchJson<Race>(
     `${API_BASE}/api/races/${encodeURIComponent(raceMongoId)}`,
@@ -290,6 +292,23 @@ export async function createFinish(payload: {
   });
 }
 
+export async function updateFinish(
+  finishId: string,
+  payload: {
+    sail_number?: string;
+    finish_time?: string;
+    rc_scoring?: string;
+  }
+): Promise<Finish> {
+  return fetchJson<Finish>(
+    `${API_BASE}/api/finishes/${encodeURIComponent(finishId)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
 export async function deleteFinish(finishId: string): Promise<void> {
   const res = await fetch(
     `${API_BASE}/api/finishes/${encodeURIComponent(finishId)}`,
@@ -299,6 +318,18 @@ export async function deleteFinish(finishId: string): Promise<void> {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error((err as { error?: string }).error || res.statusText);
   }
+}
+
+export async function extractSailNumbersFromImage(
+  imageBase64OrDataUrl: string
+): Promise<{ sail_numbers: string[] }> {
+  return fetchJson<{ sail_numbers: string[] }>(
+    `${API_BASE}/api/finishes/extract-from-image`,
+    {
+      method: "POST",
+      body: JSON.stringify({ image: imageBase64OrDataUrl }),
+    }
+  );
 }
 
 // ---------- Results ----------

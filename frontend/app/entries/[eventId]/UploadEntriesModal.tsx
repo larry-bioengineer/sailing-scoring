@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from "@headlessui/react";
 import { DocumentArrowUpIcon } from "@heroicons/react/24/outline";
-import { createEntry, deleteEntry, type Entry } from "@/lib/api";
+import { createEntry, updateEntry, type Entry } from "@/lib/api";
 import { parseCsv } from "@/lib/csv";
 
 const PREVIEW_ROWS = 10;
@@ -147,6 +147,20 @@ export function UploadEntriesModal({
   })();
 
   const previewRows = mappedRows.slice(0, PREVIEW_ROWS);
+
+  // Map existing entries by normalized sail number for overlap detection
+  const existingBySail = (() => {
+    const map = new Map<string, Entry>();
+    for (const e of existingEntries) {
+      map.set(normalizeSail(e.sail_number), e);
+    }
+    return map;
+  })();
+  const overlapCount = mappedRows.filter((r) =>
+    existingBySail.has(normalizeSail(r.sail_number))
+  ).length;
+  const newCount = mappedRows.length - overlapCount;
+
   const canImport =
     hasMapping &&
     mappedRows.length > 0 &&
@@ -160,15 +174,20 @@ export function UploadEntriesModal({
     setError(null);
     setImporting(true);
     try {
-      for (const entry of existingEntries) {
-        await deleteEntry(entry._id);
-      }
       for (const row of mappedRows) {
-        await createEntry({
-          event_id: eventId,
-          sail_number: row.sail_number.trim(), // trim again at save time (values already trimmed when mapping)
-          name: (row.name || "").trim() || undefined,
-        });
+        const norm = normalizeSail(row.sail_number);
+        const existing = existingBySail.get(norm);
+        const sail = row.sail_number.trim();
+        const name = (row.name || "").trim() || undefined;
+        if (existing) {
+          await updateEntry(existing._id, { sail_number: sail, name });
+        } else {
+          await createEntry({
+            event_id: eventId,
+            sail_number: sail,
+            name,
+          });
+        }
       }
       onImported();
       handleClose();
@@ -198,7 +217,7 @@ export function UploadEntriesModal({
               Import entries from CSV
             </DialogTitle>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-              Upload a CSV file and map columns to Sail number and Name. Leading and trailing spaces in cells are removed automatically. Importing will replace all existing entries for this event.
+              Upload a CSV file and map columns to Sail number and Name. Leading and trailing spaces in cells are removed automatically. New rows are added to existing entries; rows with the same sail number update that entry.
             </p>
 
             {/* Drop zone */}
@@ -298,15 +317,19 @@ export function UploadEntriesModal({
               </div>
             )}
 
-            {/* Warning and confirmation */}
+            {/* Summary and confirmation */}
             {hasMapping && mappedRows.length > 0 && (
-              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20">
-                <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                  Importing will replace all existing entries for this event with the data from this file. This cannot be undone.
+              <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/50">
+                <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                  {overlapCount === 0
+                    ? `All ${mappedRows.length} rows will be added as new entries.`
+                    : overlapCount === mappedRows.length
+                      ? `All ${mappedRows.length} rows match existing sail numbers; those entries will be updated.`
+                      : `${newCount} new entries will be added and ${overlapCount} existing entries (matching sail numbers) will be updated.`}
                 </p>
-                {existingEntries.length > 0 && (
-                  <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
-                    You currently have {existingEntries.length} entries; they will all be removed and replaced by {mappedRows.length} rows from the CSV.
+                {existingEntries.length > 0 && overlapCount > 0 && (
+                  <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                    You have {existingEntries.length} existing entries; overlapping sail numbers will get updated with CSV data.
                   </p>
                 )}
                 <label className="mt-3 flex items-center gap-2 cursor-pointer">
@@ -316,8 +339,8 @@ export function UploadEntriesModal({
                     onChange={(e) => setConfirmedOverride(e.target.checked)}
                     className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-900"
                   />
-                  <span className="text-sm text-amber-800 dark:text-amber-200">
-                    I understand that existing entries will be replaced
+                  <span className="text-sm text-zinc-700 dark:text-zinc-300">
+                    I'm ready to add and update entries
                   </span>
                 </label>
               </div>

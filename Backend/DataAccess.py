@@ -40,9 +40,18 @@ def load_entries() -> list[dict[str, Any]]:
 
 
 def load_race_info() -> list[dict[str, Any]]:
-    """Load all races from Scoring.RaceInfo (sorted by start_time then race_id for order)."""
+    """Load all races from Scoring.RaceInfo, sorted by date (missing last), then start_time, then race_id."""
     coll = get_db().RaceInfo
-    return list(coll.find({}).sort([("start_time", 1), ("race_id", 1)]))
+    races = list(coll.find({}))
+    # Missing date sorts last (sentinel "9999-99-99" so YYYY-MM-DD order is preserved)
+    races.sort(
+        key=lambda r: (
+            r.get("date") or "9999-99-99",
+            r.get("start_time") or "",
+            r.get("race_id") or "",
+        )
+    )
+    return races
 
 
 def load_finishes() -> list[dict[str, Any]]:

@@ -72,7 +72,7 @@ export function DeleteRaceModal({
                 data-autofocus
                 onClick={onClose}
                 disabled={submitting}
-                className="cursor-pointer mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-zinc-900 shadow-xs ring-1 ring-zinc-300 hover:bg-zinc-50 dark:bg-zinc-900 dark:ring-zinc-700 dark:hover:bg-zinc-800 sm:col-start-1 sm:mt-0 disabled:opacity-50"
+                className="cursor-pointer mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-zinc-900 shadow-xs ring-1 ring-zinc-300 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-zinc-700 dark:hover:bg-zinc-800 sm:col-start-1 sm:mt-0 disabled:opacity-50"
               >
                 Cancel
               </button>

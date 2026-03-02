@@ -11,6 +11,10 @@ from bson import ObjectId
 from pymongo import ReturnDocument
 from DataAccess import get_db
 
+# Sentinel: when rc_scoring is not passed to update_finish, the field is left unchanged.
+# Passing None means "clear rc_scoring".
+_RC_NOT_PROVIDED = object()
+
 
 # ---------- Document builders (for data entry) ----------
 
@@ -58,19 +62,27 @@ def division_doc(event_id: str, name: str) -> dict[str, Any]:
     }
 
 
-def race_doc(event_id: str, race_id: str, start_time: str) -> dict[str, Any]:
-    """Build a RaceInfo document: {"event_id", "race_id", "start_time"}."""
+def race_doc(
+    event_id: str,
+    race_id: str,
+    start_time: str,
+    date: str | None = None,
+) -> dict[str, Any]:
+    """Build a RaceInfo document: {"event_id", "race_id", "start_time", "date"?}."""
     if not event_id or not event_id.strip():
         raise ValueError("event_id must be non-empty")
     if not race_id or not str(race_id).strip():
         raise ValueError("race_id must be non-empty")
     if not start_time or not str(start_time).strip():
         raise ValueError("start_time must be non-empty")
-    return {
+    doc: dict[str, Any] = {
         "event_id": event_id.strip(),
         "race_id": str(race_id).strip(),
         "start_time": str(start_time).strip(),
     }
+    if date is not None and str(date).strip():
+        doc["date"] = str(date).strip()
+    return doc
 
 
 def finish_doc(
@@ -289,19 +301,54 @@ def insert_race(doc: dict[str, Any]) -> Any:
     return get_db().RaceInfo.insert_one(doc)
 
 
-def update_race(race_mongo_id: str, notes: str | None) -> dict[str, Any] | None:
-    """Update a race's notes in Scoring.RaceInfo by _id. Returns updated document or None if not found."""
-    coll = get_db().RaceInfo
+def update_race(
+    race_mongo_id: str,
+    notes: str | None = None,
+    race_id: str | None = None,
+    start_time: str | None = None,
+    date: str | None = None,
+) -> dict[str, Any] | None:
+    """Update a race in Scoring.RaceInfo by _id. Only provided fields are updated.
+    If race_id is changed, all ScoreSample documents for this race are updated to the new race_id.
+    Returns updated document or None if not found."""
+    db = get_db()
     try:
         oid = ObjectId(race_mongo_id)
     except Exception:
         return None
-    value = (notes if notes is not None else "").strip() if notes is not None else ""
-    result = coll.find_one_and_update(
+    race = db.RaceInfo.find_one({"_id": oid})
+    if not race:
+        return None
+    updates: dict[str, Any] = {}
+    if notes is not None:
+        updates["notes"] = (notes if isinstance(notes, str) else str(notes)).strip()
+    if race_id is not None:
+        new_race_id = str(race_id).strip()
+        if not new_race_id:
+            raise ValueError("race_id must be non-empty")
+        updates["race_id"] = new_race_id
+    if start_time is not None:
+        new_start = str(start_time).strip()
+        if not new_start:
+            raise ValueError("start_time must be non-empty")
+        updates["start_time"] = new_start
+    if date is not None and str(date).strip():
+        updates["date"] = str(date).strip()
+    if not updates:
+        return race
+    result = db.RaceInfo.find_one_and_update(
         {"_id": oid},
-        {"$set": {"notes": value}},
+        {"$set": updates},
         return_document=ReturnDocument.AFTER,
     )
+    if result and "race_id" in updates:
+        old_race_id = str(race.get("race_id", ""))
+        new_race_id = updates["race_id"]
+        if old_race_id != new_race_id:
+            db.ScoreSample.update_many(
+                {"race_id": old_race_id},
+                {"$set": {"race_id": new_race_id}},
+            )
     return result
 
 
@@ -334,6 +381,42 @@ def delete_finish(finish_mongo_id: str) -> bool:
         return False
     result = get_db().ScoreSample.delete_one({"_id": oid})
     return result.deleted_count > 0
+
+
+def update_finish(
+    finish_mongo_id: str,
+    *,
+    sail_number: str | None = None,
+    finish_time: str | None = None,
+    rc_scoring: str | None | object = _RC_NOT_PROVIDED,
+) -> dict[str, Any] | None:
+    """Update one finish by _id. Only provided fields are updated. Returns updated doc or None if not found.
+    rc_scoring: pass None to clear the field; pass a string to set it; omit (or use _RC_NOT_PROVIDED) to leave unchanged."""
+    try:
+        oid = ObjectId(finish_mongo_id)
+    except Exception:
+        return None
+    update: dict[str, Any] = {}
+    if sail_number is not None:
+        sn = str(sail_number).strip()
+        if not sn:
+            raise ValueError("sail_number must be non-empty")
+        update["sail_number"] = sn
+    if finish_time is not None:
+        ft = str(finish_time).strip()
+        if not ft:
+            raise ValueError("finish_time must be non-empty")
+        update["finish_time"] = ft
+    if rc_scoring is not _RC_NOT_PROVIDED:
+        update["rc_scoring"] = None if rc_scoring is None else (str(rc_scoring).strip() or None)
+    if not update:
+        return get_db().ScoreSample.find_one({"_id": oid})
+    result = get_db().ScoreSample.find_one_and_update(
+        {"_id": oid},
+        {"$set": update},
+        return_document=ReturnDocument.AFTER,
+    )
+    return result
 
 
 def insert_events(docs: list[dict[str, Any]]) -> Any:

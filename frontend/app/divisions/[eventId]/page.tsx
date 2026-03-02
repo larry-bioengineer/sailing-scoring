@@ -20,6 +20,8 @@ export default function DivisionsEventPage() {
   const params = useParams();
   const eventId = typeof params.eventId === "string" ? params.eventId : "";
   const [divisions, setDivisions] = useState<Division[]>([]);
+  /** Event entries; used to show entry count per division */
+  const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingDivisionId, setEditingDivisionId] = useState<string | null>(null);
@@ -30,6 +32,8 @@ export default function DivisionsEventPage() {
   const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
   /** Search query to filter entries in the drawer */
   const [entrySearchQuery, setEntrySearchQuery] = useState("");
+  /** Pasted CSV/text of sail numbers to select by exact match */
+  const [pasteSailNumbersInput, setPasteSailNumbersInput] = useState("");
   const [drawerEntered, setDrawerEntered] = useState(false);
   const drawerClosingRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
@@ -38,12 +42,28 @@ export default function DivisionsEventPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /** Count of entries per division (divisionId -> count) */
+  const entryCountByDivisionId = (() => {
+    const map = new Map<string, number>();
+    for (const d of divisions) map.set(d._id, 0);
+    for (const e of entries) {
+      for (const did of e.division_ids ?? []) {
+        map.set(did, (map.get(did) ?? 0) + 1);
+      }
+    }
+    return map;
+  })();
+
   const load = async () => {
     if (!eventId) return;
     setLoading(true);
     try {
-      const data = await getDivisions(eventId);
-      setDivisions(data);
+      const [divisionsData, entriesData] = await Promise.all([
+        getDivisions(eventId),
+        getEntries(eventId),
+      ]);
+      setDivisions(divisionsData);
+      setEntries(entriesData);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load divisions");
     } finally {
@@ -84,6 +104,7 @@ export default function DivisionsEventPage() {
     setDrawerEntries([]);
     setSelectedEntryIds(new Set());
     setEntrySearchQuery("");
+    setPasteSailNumbersInput("");
   };
 
   const openAddDrawer = async () => {
@@ -148,6 +169,26 @@ export default function DivisionsEventPage() {
       filteredDrawerEntries.forEach((e) => next.delete(e._id));
       return next;
     });
+
+  /** Parse pasted CSV/plain text into sail numbers (one per line or comma-separated), then select entries with exact sail number match. */
+  const selectByPastedSailNumbers = () => {
+    const raw = pasteSailNumbersInput.trim();
+    if (!raw) return;
+    const numbers = raw
+      .split(/[\r\n,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const wantSet = new Set(numbers);
+    const matchedIds = drawerEntries
+      .filter((e) => wantSet.has(String(e.sail_number ?? "").trim()))
+      .map((e) => e._id);
+    setSelectedEntryIds((prev) => {
+      const next = new Set(prev);
+      matchedIds.forEach((id) => next.add(id));
+      return next;
+    });
+    setPasteSailNumbersInput("");
+  };
 
   const handleDrawerTransitionEnd = (e: React.TransitionEvent) => {
     if (e.target !== e.currentTarget) return;
@@ -308,6 +349,12 @@ export default function DivisionsEventPage() {
                   </th>
                   <th
                     scope="col"
+                    className="px-6 py-4 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50"
+                  >
+                    Entries
+                  </th>
+                  <th
+                    scope="col"
                     className="relative px-6 py-4 text-right text-sm font-semibold text-zinc-900 dark:text-zinc-50"
                   >
                     Actions
@@ -318,7 +365,7 @@ export default function DivisionsEventPage() {
                 {divisions.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={2}
+                      colSpan={3}
                       className="px-6 py-8 text-center text-sm text-zinc-500 dark:text-zinc-400"
                     >
                       No divisions yet. Add a division to group entries for results.
@@ -332,6 +379,9 @@ export default function DivisionsEventPage() {
                     >
                       <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-zinc-900 dark:text-zinc-50">
                         {d.name}
+                      </td>
+                      <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-600 dark:text-zinc-400">
+                        {entryCountByDivisionId.get(d._id) ?? 0}
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-right">
                         {deleteConfirmId === d._id ? (
@@ -470,6 +520,28 @@ export default function DivisionsEventPage() {
                     className="mb-2 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-500 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-400"
                     aria-label="Filter entries"
                   />
+                  <div className="mb-2">
+                    <label htmlFor="paste-sail-numbers" className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                      Paste sail numbers (one per line or CSV)
+                    </label>
+                    <textarea
+                      id="paste-sail-numbers"
+                      value={pasteSailNumbersInput}
+                      onChange={(e) => setPasteSailNumbersInput(e.target.value)}
+                      placeholder={"e.g. 123\n456\n789"}
+                      rows={3}
+                      className="mb-1.5 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-500 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-400"
+                      aria-label="Paste sail numbers to select"
+                    />
+                    <button
+                      type="button"
+                      onClick={selectByPastedSailNumbers}
+                      disabled={!pasteSailNumbersInput.trim()}
+                      className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                    >
+                      Select by sail numbers
+                    </button>
+                  </div>
                   <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
                     <ul className="divide-y divide-zinc-200 p-2 dark:divide-zinc-700">
                       {filteredDrawerEntries.length === 0 ? (

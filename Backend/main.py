@@ -1,3 +1,5 @@
+from datetime import date as date_type
+
 from flask import Flask, request, jsonify, Response
 
 from flask_cors import CORS
@@ -31,6 +33,7 @@ from ScoringEntry import (
     delete_race,
     insert_finish,
     delete_finish,
+    update_finish,
 )
 from Calculation import build_series_result, to_csv_string
 from api_util import serialize_for_json
@@ -274,8 +277,9 @@ def post_race():
     event_id = (data.get("event_id") or "").strip()
     race_id = (data.get("race_id") or "").strip()
     start_time = (data.get("start_time") or "").strip()
+    date = (data.get("date") or "").strip() or str(date_type.today())
     try:
-        doc = race_doc(event_id, race_id, start_time)
+        doc = race_doc(event_id, race_id, start_time, date=date)
         result = insert_race(doc)
         out = {**doc, "_id": str(result.inserted_id)}
         return jsonify(serialize_for_json(out)), 201
@@ -291,7 +295,25 @@ def patch_race(race_mongo_id):
     notes = data.get("notes")
     if notes is not None and not isinstance(notes, str):
         notes = str(notes)
-    updated = update_race(race_mongo_id.strip(), notes)
+    race_id = data.get("race_id")
+    if race_id is not None:
+        race_id = race_id if isinstance(race_id, str) else str(race_id)
+    start_time = data.get("start_time")
+    if start_time is not None:
+        start_time = start_time if isinstance(start_time, str) else str(start_time)
+    date = data.get("date")
+    if date is not None:
+        date = date if isinstance(date, str) else str(date)
+    try:
+        updated = update_race(
+            race_mongo_id.strip(),
+            notes=notes,
+            race_id=race_id,
+            start_time=start_time,
+            date=date,
+        )
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     if updated is None:
         return jsonify({"error": "Race not found"}), 404
     out = {
@@ -301,6 +323,8 @@ def patch_race(race_mongo_id):
         "start_time": updated.get("start_time"),
         "notes": updated.get("notes", ""),
     }
+    if updated.get("date") is not None:
+        out["date"] = updated.get("date")
     return jsonify(serialize_for_json(out))
 
 
@@ -354,6 +378,43 @@ def delete_finish_route(finish_id: str):
     if delete_finish(finish_id):
         return "", 204
     return jsonify({"error": "Finish not found"}), 404
+
+
+@app.route("/api/finishes/<finish_id>", methods=["PUT"])
+def put_finish_route(finish_id: str):
+    data = request.get_json() or {}
+    sail_number = data.get("sail_number")
+    if sail_number is not None:
+        sail_number = (sail_number or "").strip() or None
+    finish_time = data.get("finish_time")
+    if finish_time is not None:
+        finish_time = (finish_time or "").strip() or None
+    # Only pass rc_scoring when key is present so empty string can clear the field
+    put_kw: dict = {"sail_number": sail_number, "finish_time": finish_time}
+    if "rc_scoring" in data:
+        put_kw["rc_scoring"] = (data.get("rc_scoring") or "").strip() or None
+    try:
+        updated = update_finish(finish_id, **put_kw)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if updated is None:
+        return jsonify({"error": "Finish not found"}), 404
+    return jsonify(serialize_for_json(updated))
+
+
+@app.route("/api/finishes/extract-from-image", methods=["POST"])
+def extract_finish_from_image():
+    data = request.get_json() or {}
+    image = data.get("image")
+    if image is None or (isinstance(image, str) and not image.strip()):
+        return jsonify({"error": "image is required"}), 400
+    image_str = image if isinstance(image, str) else str(image)
+    try:
+        from openrouter import extract_sail_numbers_from_image
+        sail_numbers = extract_sail_numbers_from_image(image_str)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"sail_numbers": sail_numbers})
 
 
 # ---------- Results ----------
