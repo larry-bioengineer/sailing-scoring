@@ -24,7 +24,7 @@ export default function RecordPage() {
           Record
         </h1>
         <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          Select an event to view and manage its race records and finishes.
+          Select an event to record starts and finishes.
         </p>
       </header>
 
@@ -89,7 +89,7 @@ export default function RecordPage() {
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-sm text-right">
                         <span className="text-zinc-500 dark:text-zinc-400">
-                          View records →
+                          Record →
                         </span>
                       </td>
                     </tr>

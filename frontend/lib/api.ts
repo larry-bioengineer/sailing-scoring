@@ -36,8 +36,10 @@ export interface Race {
   event_id: string;
   race_id: string;
   start_time: string;
+  division_id?: string; // required when creating; may be missing on legacy data
   date?: string;
   notes?: string;
+  finish_window_minutes?: number;
 }
 
 export interface Finish {
@@ -238,6 +240,8 @@ export async function createRace(payload: {
   race_id: string;
   start_time: string;
   date: string;
+  division_id: string;
+  finish_window_minutes: number;
 }): Promise<Race> {
   return fetchJson<Race>(`${API_BASE}/api/races`, {
     method: "POST",
@@ -247,7 +251,14 @@ export async function createRace(payload: {
 
 export async function updateRace(
   raceMongoId: string,
-  payload: { notes?: string; race_id?: string; start_time?: string; date?: string }
+  payload: {
+    notes?: string;
+    race_id?: string;
+    start_time?: string;
+    date?: string;
+    division_id?: string;
+    finish_window_minutes?: number;
+  }
 ): Promise<Race> {
   return fetchJson<Race>(
     `${API_BASE}/api/races/${encodeURIComponent(raceMongoId)}`,
@@ -296,6 +307,7 @@ export async function updateFinish(
   finishId: string,
   payload: {
     sail_number?: string;
+    race_id?: string;
     finish_time?: string;
     rc_scoring?: string;
   }

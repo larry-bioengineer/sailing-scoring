@@ -277,9 +277,20 @@ def post_race():
     event_id = (data.get("event_id") or "").strip()
     race_id = (data.get("race_id") or "").strip()
     start_time = (data.get("start_time") or "").strip()
+    division_id = (data.get("division_id") or "").strip()
     date = (data.get("date") or "").strip() or str(date_type.today())
+    finish_window = data.get("finish_window_minutes")
+    if finish_window is not None and not isinstance(finish_window, int):
+        try:
+            finish_window = int(finish_window)
+        except (TypeError, ValueError):
+            finish_window = None
+    if not division_id:
+        return jsonify({"error": "division_id is required and must be non-empty"}), 400
+    if finish_window is None:
+        return jsonify({"error": "finish_window_minutes is required (integer: minutes allowed to finish after first boat)"}), 400
     try:
-        doc = race_doc(event_id, race_id, start_time, date=date)
+        doc = race_doc(event_id, race_id, start_time, division_id, date=date, finish_window_minutes=finish_window)
         result = insert_race(doc)
         out = {**doc, "_id": str(result.inserted_id)}
         return jsonify(serialize_for_json(out)), 201
@@ -304,6 +315,17 @@ def patch_race(race_mongo_id):
     date = data.get("date")
     if date is not None:
         date = date if isinstance(date, str) else str(date)
+    division_id = data.get("division_id")
+    if division_id is not None:
+        division_id = str(division_id).strip() if division_id else ""
+        if not division_id:
+            return jsonify({"error": "division_id must be non-empty when provided"}), 400
+    finish_window_minutes = data.get("finish_window_minutes")
+    if finish_window_minutes is not None:
+        try:
+            finish_window_minutes = int(finish_window_minutes)
+        except (TypeError, ValueError):
+            return jsonify({"error": "finish_window_minutes must be an integer"}), 400
     try:
         updated = update_race(
             race_mongo_id.strip(),
@@ -311,6 +333,8 @@ def patch_race(race_mongo_id):
             race_id=race_id,
             start_time=start_time,
             date=date,
+            division_id=division_id,
+            finish_window_minutes=finish_window_minutes,
         )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
@@ -325,6 +349,10 @@ def patch_race(race_mongo_id):
     }
     if updated.get("date") is not None:
         out["date"] = updated.get("date")
+    if updated.get("division_id") is not None:
+        out["division_id"] = updated.get("division_id")
+    if updated.get("finish_window_minutes") is not None:
+        out["finish_window_minutes"] = updated.get("finish_window_minutes")
     return jsonify(serialize_for_json(out))
 
 
@@ -386,11 +414,14 @@ def put_finish_route(finish_id: str):
     sail_number = data.get("sail_number")
     if sail_number is not None:
         sail_number = (sail_number or "").strip() or None
+    race_id = data.get("race_id")
+    if race_id is not None:
+        race_id = (race_id or "").strip() or None
     finish_time = data.get("finish_time")
     if finish_time is not None:
         finish_time = (finish_time or "").strip() or None
     # Only pass rc_scoring when key is present so empty string can clear the field
-    put_kw: dict = {"sail_number": sail_number, "finish_time": finish_time}
+    put_kw: dict = {"sail_number": sail_number, "race_id": race_id, "finish_time": finish_time}
     if "rc_scoring" in data:
         put_kw["rc_scoring"] = (data.get("rc_scoring") or "").strip() or None
     try:

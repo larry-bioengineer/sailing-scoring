@@ -66,19 +66,29 @@ def race_doc(
     event_id: str,
     race_id: str,
     start_time: str,
+    division_id: str,
     date: str | None = None,
+    finish_window_minutes: int | None = None,
 ) -> dict[str, Any]:
-    """Build a RaceInfo document: {"event_id", "race_id", "start_time", "date"?}."""
+    """Build a RaceInfo document: {"event_id", "race_id", "start_time", "division_id", "date"?,"finish_window_minutes"?}."""
     if not event_id or not event_id.strip():
         raise ValueError("event_id must be non-empty")
     if not race_id or not str(race_id).strip():
         raise ValueError("race_id must be non-empty")
     if not start_time or not str(start_time).strip():
         raise ValueError("start_time must be non-empty")
+    if not division_id or not str(division_id).strip():
+        raise ValueError("division_id must be non-empty")
+    if finish_window_minutes is None:
+        raise ValueError("finish_window_minutes is required")
+    if not isinstance(finish_window_minutes, int) or finish_window_minutes < 0:
+        raise ValueError("finish_window_minutes must be a non-negative integer")
     doc: dict[str, Any] = {
         "event_id": event_id.strip(),
         "race_id": str(race_id).strip(),
         "start_time": str(start_time).strip(),
+        "division_id": str(division_id).strip(),
+        "finish_window_minutes": finish_window_minutes,
     }
     if date is not None and str(date).strip():
         doc["date"] = str(date).strip()
@@ -307,6 +317,8 @@ def update_race(
     race_id: str | None = None,
     start_time: str | None = None,
     date: str | None = None,
+    division_id: str | None = None,
+    finish_window_minutes: int | None = None,
 ) -> dict[str, Any] | None:
     """Update a race in Scoring.RaceInfo by _id. Only provided fields are updated.
     If race_id is changed, all ScoreSample documents for this race are updated to the new race_id.
@@ -334,6 +346,15 @@ def update_race(
         updates["start_time"] = new_start
     if date is not None and str(date).strip():
         updates["date"] = str(date).strip()
+    if division_id is not None:
+        div_id = str(division_id).strip()
+        if not div_id:
+            raise ValueError("division_id must be non-empty")
+        updates["division_id"] = div_id
+    if finish_window_minutes is not None:
+        if not isinstance(finish_window_minutes, int) or finish_window_minutes < 0:
+            raise ValueError("finish_window_minutes must be a non-negative integer")
+        updates["finish_window_minutes"] = finish_window_minutes
     if not updates:
         return race
     result = db.RaceInfo.find_one_and_update(
@@ -387,6 +408,7 @@ def update_finish(
     finish_mongo_id: str,
     *,
     sail_number: str | None = None,
+    race_id: str | None = None,
     finish_time: str | None = None,
     rc_scoring: str | None | object = _RC_NOT_PROVIDED,
 ) -> dict[str, Any] | None:
@@ -402,6 +424,11 @@ def update_finish(
         if not sn:
             raise ValueError("sail_number must be non-empty")
         update["sail_number"] = sn
+    if race_id is not None:
+        rid = str(race_id).strip()
+        if not rid:
+            raise ValueError("race_id must be non-empty")
+        update["race_id"] = rid
     if finish_time is not None:
         ft = str(finish_time).strip()
         if not ft:
