@@ -140,7 +140,11 @@ export default function EntriesEventPage() {
     setError(null);
     try {
       await updateEntry(entry._id, { division_ids: divisionIds });
-      await load();
+      setEntries((prev) =>
+        prev.map((e) =>
+          e._id === entry._id ? { ...e, division_ids: divisionIds } : e
+        )
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to update divisions");
     }

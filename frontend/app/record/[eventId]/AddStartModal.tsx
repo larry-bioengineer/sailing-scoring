@@ -1,13 +1,15 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Dialog,
   DialogBackdrop,
   DialogPanel,
   DialogTitle,
 } from "@headlessui/react";
+import { ChevronDownIcon } from "@heroicons/react/24/outline";
 import { createRace, type Race, type Division } from "@/lib/api";
+import { BatchStartsGrid } from "./BatchStartsGrid";
 
 export type AddStartModalProps = {
   open: boolean;
@@ -17,6 +19,17 @@ export type AddStartModalProps = {
   existingRaces: Race[];
   onAdded: () => void;
 };
+
+type TabId = "single" | "batch";
+
+const TABS: { id: TabId; name: string }[] = [
+  { id: "single", name: "Single start" },
+  { id: "batch", name: "Batch input" },
+];
+
+function classNames(...classes: (string | boolean | undefined)[]) {
+  return classes.filter(Boolean).join(" ");
+}
 
 function nextRaceId(races: Race[]): string {
   if (races.length === 0) return "1";
@@ -28,6 +41,14 @@ function nextRaceId(races: Race[]): string {
   return String(max + 1);
 }
 
+/** Next suggested Race No for the given division (max existing + 1). */
+function nextRaceIdForDivision(races: Race[], divisionId: string): string {
+  const forDivision = races.filter(
+    (r) => (r.division_id ?? "").trim() === divisionId.trim()
+  );
+  return nextRaceId(forDivision);
+}
+
 export function AddStartModal({
   open,
   onClose,
@@ -36,7 +57,9 @@ export function AddStartModal({
   existingRaces,
   onAdded,
 }: AddStartModalProps) {
+  const [tab, setTab] = useState<TabId>("single");
   const [divisionId, setDivisionId] = useState("");
+  const [raceIdInput, setRaceIdInput] = useState("");
   const [course, setCourse] = useState("");
   const [date, setDate] = useState(() => {
     const d = new Date();
@@ -47,11 +70,27 @@ export function AddStartModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const nextId = useMemo(() => nextRaceId(existingRaces), [existingRaces]);
+  const suggestedRaceId = useMemo(
+    () =>
+      divisionId.trim()
+        ? nextRaceIdForDivision(existingRaces, divisionId)
+        : "1",
+    [existingRaces, divisionId]
+  );
+
+  useEffect(() => {
+    if (open && divisionId.trim()) {
+      setRaceIdInput(suggestedRaceId);
+    } else if (open && !divisionId.trim()) {
+      setRaceIdInput("");
+    }
+  }, [open, divisionId, suggestedRaceId]);
+
   const finishWindowValid =
     Number.isInteger(finishWindowMinutes) && finishWindowMinutes >= 0;
   const canSubmit =
     divisionId.trim() !== "" &&
+    raceIdInput.trim() !== "" &&
     date.trim() !== "" &&
     startTime.trim() !== "" &&
     finishWindowValid &&
@@ -65,7 +104,7 @@ export function AddStartModal({
     try {
       await createRace({
         event_id: eventId,
-        race_id: nextId,
+        race_id: raceIdInput.trim(),
         start_time: startTime.trim(),
         date: date.trim(),
         division_id: divisionId.trim(),
@@ -75,6 +114,7 @@ export function AddStartModal({
       onAdded();
       onClose();
       setDivisionId("");
+      setRaceIdInput("");
       setCourse("");
       setDate(new Date().toISOString().slice(0, 10));
       setStartTime("12:00:00");
@@ -96,7 +136,7 @@ export function AddStartModal({
         <div className="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
           <DialogPanel
             transition
-            className="relative transform overflow-hidden rounded-xl border border-zinc-200 bg-white px-4 pt-5 pb-4 text-left shadow-xl transition-all data-closed:translate-y-4 data-closed:opacity-0 data-enter:duration-300 data-enter:ease-out data-leave:duration-200 data-leave:ease-in dark:border-zinc-800 dark:bg-zinc-950 sm:my-8 sm:w-full sm:max-w-lg sm:p-6 data-closed:sm:translate-y-0 data-closed:sm:scale-95"
+            className={`relative transform overflow-hidden rounded-xl border border-zinc-200 bg-white px-4 pt-5 pb-4 text-left shadow-xl transition-all data-closed:translate-y-4 data-closed:opacity-0 data-enter:duration-300 data-enter:ease-out data-leave:duration-200 data-leave:ease-in dark:border-zinc-800 dark:bg-zinc-950 sm:my-8 sm:w-full sm:p-6 data-closed:sm:translate-y-0 data-closed:sm:scale-95 ${tab === "batch" ? "sm:max-w-4xl" : "sm:max-w-lg"}`}
           >
             <DialogTitle
               as="h2"
@@ -105,9 +145,66 @@ export function AddStartModal({
               Add start
             </DialogTitle>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-              Record a new race start. Race No will be {nextId}.
+              {tab === "single"
+                ? "Record a new race start. Race No is suggested from existing races for the division; you can change it to insert a race in between."
+                : "Enter multiple starts for the same division. Use the grid to add rows and drag from a cell to fill values down the column."}
             </p>
 
+            {/* Tabs: Single start | Batch input */}
+            <div className="mt-4">
+              <div className="grid grid-cols-1 sm:hidden">
+                <select
+                  value={tab}
+                  onChange={(e) => setTab(e.target.value as TabId)}
+                  aria-label="Select a tab"
+                  className="col-start-1 row-start-1 w-full appearance-none rounded-md border border-zinc-300 bg-white py-2 pr-8 pl-3 text-base text-zinc-900 outline-1 -outline-offset-1 outline-zinc-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+                >
+                  {TABS.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDownIcon
+                  aria-hidden
+                  className="pointer-events-none col-start-1 row-start-1 mr-2 size-5 self-center justify-self-end fill-zinc-500"
+                />
+              </div>
+              <div className="hidden sm:block">
+                <div className="border-b border-zinc-200 dark:border-zinc-700">
+                  <nav aria-label="Tabs" className="-mb-px flex space-x-8">
+                    {TABS.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setTab(t.id)}
+                        aria-current={tab === t.id ? "page" : undefined}
+                        className={classNames(
+                          tab === t.id
+                            ? "border-indigo-500 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400"
+                            : "border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-300",
+                          "border-b-2 px-1 py-4 text-sm font-medium whitespace-nowrap"
+                        )}
+                      >
+                        {t.name}
+                      </button>
+                    ))}
+                  </nav>
+                </div>
+              </div>
+            </div>
+
+            {tab === "batch" ? (
+              <div className="mt-4">
+                <BatchStartsGrid
+                  eventId={eventId}
+                  divisions={divisions}
+                  existingRaces={existingRaces}
+                  onAdded={onAdded}
+                  onCancel={onClose}
+                />
+              </div>
+            ) : (
             <form onSubmit={handleSubmit} className="mt-4 space-y-4">
               <div>
                 <label
@@ -130,6 +227,29 @@ export function AddStartModal({
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="add-start-race-no"
+                  className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
+                >
+                  Race No <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="add-start-race-no"
+                  type="text"
+                  required
+                  value={raceIdInput}
+                  onChange={(e) => setRaceIdInput(e.target.value)}
+                  placeholder={divisionId.trim() ? suggestedRaceId : "Select division first"}
+                  className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+                />
+                {divisionId.trim() && (
+                  <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                    Suggested: {suggestedRaceId} (next for this division). Override to insert between existing races.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -234,6 +354,7 @@ export function AddStartModal({
                 </button>
               </div>
             </form>
+            )}
           </DialogPanel>
         </div>
       </div>

@@ -264,7 +264,7 @@ export default function RecordFinishPage() {
     setError(null);
     try {
       await deleteFinish(finishId);
-      await load();
+      setFinishes((prev) => prev.filter((f) => f._id !== finishId));
       if (editingId === finishId) setEditingId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete");
