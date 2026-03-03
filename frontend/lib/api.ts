@@ -40,6 +40,7 @@ export interface Race {
   date?: string;
   notes?: string;
   finish_window_minutes?: number;
+  course?: string;
 }
 
 export interface Finish {
@@ -242,6 +243,7 @@ export async function createRace(payload: {
   date: string;
   division_id: string;
   finish_window_minutes: number;
+  course?: string;
 }): Promise<Race> {
   return fetchJson<Race>(`${API_BASE}/api/races`, {
     method: "POST",
@@ -258,6 +260,7 @@ export async function updateRace(
     date?: string;
     division_id?: string;
     finish_window_minutes?: number;
+    course?: string;
   }
 ): Promise<Race> {
   return fetchJson<Race>(

@@ -15,7 +15,13 @@ import {
   type Finish,
   type Entry,
 } from "@/lib/api";
-import { PencilSquareIcon, TrashIcon } from "@heroicons/react/24/outline";
+import {
+  ChevronDownIcon,
+  ChevronUpIcon,
+  PencilSquareIcon,
+  PlusIcon,
+  TrashIcon,
+} from "@heroicons/react/24/outline";
 import { AddStartModal } from "./AddStartModal";
 import { EditStartModal } from "./EditStartModal";
 
@@ -33,6 +39,10 @@ export default function RecordEventPage() {
   const [error, setError] = useState<string | null>(null);
   const [addStartOpen, setAddStartOpen] = useState(false);
   const [raceToEdit, setRaceToEdit] = useState<Race | null>(null);
+  const [sortStartBy, setSortStartBy] = useState<"division" | "date" | null>(null);
+  const [sortStartDir, setSortStartDir] = useState<"asc" | "desc">("asc");
+  const [sortFinishBy, setSortFinishBy] = useState<"division" | "date" | null>(null);
+  const [sortFinishDir, setSortFinishDir] = useState<"asc" | "desc">("asc");
 
   const load = async () => {
     if (!eventId) return;
@@ -87,7 +97,55 @@ export default function RecordEventPage() {
     };
   });
 
+  const sortedRaces = sortStartBy
+    ? [...races].sort((a, b) => {
+        const dir = sortStartDir === "asc" ? 1 : -1;
+        if (sortStartBy === "division") {
+          const nameA = divisionNameById.get(a.division_id ?? "") ?? "";
+          const nameB = divisionNameById.get(b.division_id ?? "") ?? "";
+          const cmp = nameA.localeCompare(nameB, undefined, { sensitivity: "base" });
+          if (cmp !== 0) return dir * cmp;
+          return dir * (a.race_id.localeCompare(b.race_id, undefined, { numeric: true }));
+        }
+        const dateA = a.date ?? "";
+        const dateB = b.date ?? "";
+        const cmp = dateA.localeCompare(dateB);
+        if (cmp !== 0) return dir * cmp;
+        return dir * ((a.start_time ?? "").localeCompare(b.start_time ?? ""));
+      })
+    : races;
+
+  const sortedFinishRows = sortFinishBy
+    ? [...finishRows].sort((a, b) => {
+        const dir = sortFinishDir === "asc" ? 1 : -1;
+        if (sortFinishBy === "division") {
+          const cmp = a.divisions.localeCompare(b.divisions, undefined, { sensitivity: "base" });
+          if (cmp !== 0) return dir * cmp;
+          return dir * (a.race_id.localeCompare(b.race_id, undefined, { numeric: true }));
+        }
+        return dir * (a.finish_time.localeCompare(b.finish_time));
+      })
+    : finishRows;
+
   const noDivisions = divisions.length === 0;
+
+  const toggleStartSort = (col: "division" | "date") => {
+    if (sortStartBy === col) {
+      setSortStartDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortStartBy(col);
+      setSortStartDir("asc");
+    }
+  };
+
+  const toggleFinishSort = (col: "division" | "date") => {
+    if (sortFinishBy === col) {
+      setSortFinishDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortFinishBy(col);
+      setSortFinishDir("asc");
+    }
+  };
 
   const handleDeleteRace = async (r: Race) => {
     if (!confirm("Delete this race? All finish records for this race will be removed.")) return;
@@ -142,8 +200,9 @@ export default function RecordEventPage() {
                 <button
                   type="button"
                   onClick={() => setAddStartOpen(true)}
-                  className="cursor-pointer inline-flex items-center rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                  className="cursor-pointer inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
                 >
+                  <PlusIcon className="size-5" aria-hidden />
                   Add start
                 </button>
               )}
@@ -157,7 +216,19 @@ export default function RecordEventPage() {
                         scope="col"
                         className="px-6 py-4 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50"
                       >
-                        Division
+                        <button
+                          type="button"
+                          onClick={() => toggleStartSort("division")}
+                          className="inline-flex items-center gap-1 hover:text-zinc-600 dark:hover:text-zinc-300"
+                        >
+                          Division
+                          {sortStartBy === "division" &&
+                            (sortStartDir === "asc" ? (
+                              <ChevronUpIcon className="size-4" aria-hidden />
+                            ) : (
+                              <ChevronDownIcon className="size-4" aria-hidden />
+                            ))}
+                        </button>
                       </th>
                       <th
                         scope="col"
@@ -169,7 +240,25 @@ export default function RecordEventPage() {
                         scope="col"
                         className="px-6 py-4 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50"
                       >
-                        Date
+                        Course
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-6 py-4 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => toggleStartSort("date")}
+                          className="inline-flex items-center gap-1 hover:text-zinc-600 dark:hover:text-zinc-300"
+                        >
+                          Date
+                          {sortStartBy === "date" &&
+                            (sortStartDir === "asc" ? (
+                              <ChevronUpIcon className="size-4" aria-hidden />
+                            ) : (
+                              <ChevronDownIcon className="size-4" aria-hidden />
+                            ))}
+                        </button>
                       </th>
                       <th
                         scope="col"
@@ -195,14 +284,14 @@ export default function RecordEventPage() {
                     {races.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={6}
+                          colSpan={7}
                           className="px-6 py-8 text-center text-sm text-zinc-500 dark:text-zinc-400"
                         >
                           No starts yet. Add a start to record race times.
                         </td>
                       </tr>
                     ) : (
-                      races.map((r) => (
+                      sortedRaces.map((r) => (
                         <tr
                           key={r._id}
                           className="bg-white dark:bg-zinc-950 hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
@@ -214,6 +303,9 @@ export default function RecordEventPage() {
                           </td>
                           <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-900 dark:text-zinc-50">
                             {r.race_id}
+                          </td>
+                          <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-600 dark:text-zinc-400">
+                            {r.course?.trim() ?? "—"}
                           </td>
                           <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-600 dark:text-zinc-400">
                             {r.date ?? "—"}
@@ -266,8 +358,9 @@ export default function RecordEventPage() {
               <button
                 type="button"
                 onClick={() => router.push(`/record/${eventId}/finish`)}
-                className="cursor-pointer inline-flex items-center rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                className="cursor-pointer inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
               >
+                <PencilSquareIcon className="size-5" aria-hidden />
                 Edit / Enter data
               </button>
             </div>
@@ -286,7 +379,19 @@ export default function RecordEventPage() {
                         scope="col"
                         className="px-6 py-4 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50"
                       >
-                        Divisions
+                        <button
+                          type="button"
+                          onClick={() => toggleFinishSort("division")}
+                          className="inline-flex items-center gap-1 hover:text-zinc-600 dark:hover:text-zinc-300"
+                        >
+                          Divisions
+                          {sortFinishBy === "division" &&
+                            (sortFinishDir === "asc" ? (
+                              <ChevronUpIcon className="size-4" aria-hidden />
+                            ) : (
+                              <ChevronDownIcon className="size-4" aria-hidden />
+                            ))}
+                        </button>
                       </th>
                       <th
                         scope="col"
@@ -298,7 +403,19 @@ export default function RecordEventPage() {
                         scope="col"
                         className="px-6 py-4 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50"
                       >
-                        Date Time
+                        <button
+                          type="button"
+                          onClick={() => toggleFinishSort("date")}
+                          className="inline-flex items-center gap-1 hover:text-zinc-600 dark:hover:text-zinc-300"
+                        >
+                          Date Time
+                          {sortFinishBy === "date" &&
+                            (sortFinishDir === "asc" ? (
+                              <ChevronUpIcon className="size-4" aria-hidden />
+                            ) : (
+                              <ChevronDownIcon className="size-4" aria-hidden />
+                            ))}
+                        </button>
                       </th>
                       <th
                         scope="col"
@@ -320,7 +437,7 @@ export default function RecordEventPage() {
                         </td>
                       </tr>
                     ) : (
-                      finishRows.map((row, idx) => (
+                      sortedFinishRows.map((row, idx) => (
                         <tr
                           key={idx}
                           className="bg-white dark:bg-zinc-950 hover:bg-zinc-50 dark:hover:bg-zinc-900/50"

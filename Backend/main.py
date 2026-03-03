@@ -285,12 +285,13 @@ def post_race():
             finish_window = int(finish_window)
         except (TypeError, ValueError):
             finish_window = None
+    course = (data.get("course") or "").strip() or None
     if not division_id:
         return jsonify({"error": "division_id is required and must be non-empty"}), 400
     if finish_window is None:
         return jsonify({"error": "finish_window_minutes is required (integer: minutes allowed to finish after first boat)"}), 400
     try:
-        doc = race_doc(event_id, race_id, start_time, division_id, date=date, finish_window_minutes=finish_window)
+        doc = race_doc(event_id, race_id, start_time, division_id, date=date, finish_window_minutes=finish_window, course=course)
         result = insert_race(doc)
         out = {**doc, "_id": str(result.inserted_id)}
         return jsonify(serialize_for_json(out)), 201
@@ -326,6 +327,9 @@ def patch_race(race_mongo_id):
             finish_window_minutes = int(finish_window_minutes)
         except (TypeError, ValueError):
             return jsonify({"error": "finish_window_minutes must be an integer"}), 400
+    course = data.get("course")
+    if course is not None:
+        course = course if isinstance(course, str) else str(course)
     try:
         updated = update_race(
             race_mongo_id.strip(),
@@ -335,6 +339,7 @@ def patch_race(race_mongo_id):
             date=date,
             division_id=division_id,
             finish_window_minutes=finish_window_minutes,
+            course=course,
         )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
@@ -353,6 +358,8 @@ def patch_race(race_mongo_id):
         out["division_id"] = updated.get("division_id")
     if updated.get("finish_window_minutes") is not None:
         out["finish_window_minutes"] = updated.get("finish_window_minutes")
+    if "course" in updated:
+        out["course"] = updated.get("course")
     return jsonify(serialize_for_json(out))
 
 

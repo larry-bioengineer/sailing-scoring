@@ -37,6 +37,7 @@ export function AddStartModal({
   onAdded,
 }: AddStartModalProps) {
   const [divisionId, setDivisionId] = useState("");
+  const [course, setCourse] = useState("");
   const [date, setDate] = useState(() => {
     const d = new Date();
     return d.toISOString().slice(0, 10);
@@ -69,10 +70,12 @@ export function AddStartModal({
         date: date.trim(),
         division_id: divisionId.trim(),
         finish_window_minutes: finishWindowMinutes,
+        course: course.trim() || undefined,
       });
       onAdded();
       onClose();
       setDivisionId("");
+      setCourse("");
       setDate(new Date().toISOString().slice(0, 10));
       setStartTime("12:00:00");
       setFinishWindowMinutes(30);
@@ -160,6 +163,23 @@ export function AddStartModal({
                   required
                   value={startTime}
                   onChange={(e) => setStartTime(e.target.value)}
+                  className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="add-start-course"
+                  className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
+                >
+                  Course
+                </label>
+                <input
+                  id="add-start-course"
+                  type="text"
+                  value={course}
+                  onChange={(e) => setCourse(e.target.value)}
+                  placeholder="e.g. Triangle, Windward-Leeward"
                   className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
                 />
               </div>

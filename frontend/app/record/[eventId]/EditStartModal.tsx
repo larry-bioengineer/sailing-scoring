@@ -35,6 +35,7 @@ export function EditStartModal({
   onSaved,
 }: EditStartModalProps) {
   const [divisionId, setDivisionId] = useState("");
+  const [course, setCourse] = useState("");
   const [raceId, setRaceId] = useState("");
   const [date, setDate] = useState("");
   const [startTime, setStartTime] = useState("");
@@ -46,6 +47,7 @@ export function EditStartModal({
   useEffect(() => {
     if (race) {
       setDivisionId(race.division_id ?? "");
+      setCourse(race.course ?? "");
       setRaceId(race.race_id ?? "");
       setDate(race.date ?? new Date().toISOString().slice(0, 10));
       setStartTime(normalizeTimeToHHMMSS(race.start_time ?? "12:00:00"));
@@ -80,6 +82,7 @@ export function EditStartModal({
         date: date.trim(),
         start_time: startTime.trim(),
         finish_window_minutes: finishWindowMinutes,
+        course: course.trim() || undefined,
         notes: notes.trim() || undefined,
       });
       onSaved();
@@ -188,6 +191,23 @@ export function EditStartModal({
                   required
                   value={startTime}
                   onChange={(e) => setStartTime(e.target.value)}
+                  className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="edit-start-course"
+                  className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
+                >
+                  Course
+                </label>
+                <input
+                  id="edit-start-course"
+                  type="text"
+                  value={course}
+                  onChange={(e) => setCourse(e.target.value)}
+                  placeholder="e.g. Triangle, Windward-Leeward"
                   className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
                 />
               </div>
